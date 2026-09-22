@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { canonicalUrl, isPlatformHost, normalizeDomain, publicPathForHost, resolveTenantFromHost } from "../billing/domains.ts"
+import { safeProviderFailure } from "../email/provider-error.ts"
 import { invitationIdempotencyKey, nextEmailAttempt, renderEmail } from "../email/templates.ts"
 import { e2eDatabaseAllowed, missingProductionEnv } from "../env.ts"
 import { redact } from "../observability/logger.ts"
@@ -36,6 +37,22 @@ test("invitation email does not return a token and retries then die", () => {
   assert.match(message.text, /Accept invitation/)
   assert.equal(nextEmailAttempt(0).status, "failed")
   assert.equal(nextEmailAttempt(5).status, "dead")
+})
+
+test("brevo failures keep status and code without secrets", () => {
+  const failure = safeProviderFailure({
+    status: 400,
+    code: "invalid_parameter",
+    message: "sender is not valid for noreply@woloyem.com api-key=x-api-key-abcdefghijklmnopqrstuvwxyz",
+    requestId: "req_123456",
+    sender: "noreply@woloyem.com",
+  })
+  assert.match(failure, /^provider_failed:400:invalid_parameter /)
+  assert.match(failure, /request=req_123456/)
+  assert.match(failure, /sender=n\*\*\*@woloyem.com/)
+  assert.equal(failure.includes("x-api-key-abcdefghijklmnopqrstuvwxyz"), false)
+  assert.equal(failure.includes("noreply@woloyem.com"), false)
+  assert.equal(safeProviderFailure({ status: 401, code: "not a code", message: "", requestId: "bad id", sender: "a@b.co" }).startsWith("provider_failed:401:unknown"), true)
 })
 
 test("logs and storage paths drop secrets and traversal", () => {

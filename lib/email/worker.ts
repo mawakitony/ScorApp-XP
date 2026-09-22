@@ -27,9 +27,15 @@ export async function processEmailJobs() {
     await admin.from("email_jobs").update({
       status: next.status === "dead" ? "dead" : "pending",
       next_run_at: next.nextRunAt ?? new Date().toISOString(),
-      last_error: result.configured ? "provider_failed" : "not_configured",
+      last_error: result.configured ? result.failure : "not_configured",
     }).eq("id", job.id)
-    log("warn", "email.retry", { template: job.template, recipient_hash: job.recipient_hash, status: next.status })
+    log("warn", "email.retry", {
+      template: job.template,
+      recipient_hash: job.recipient_hash,
+      status: next.status,
+      provider_status: result.configured ? result.status : null,
+      provider_code: result.configured ? result.code : null,
+    })
   }
   await recordHeartbeat("email_worker")
   return { sent }
