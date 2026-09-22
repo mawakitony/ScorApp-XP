@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { ConversionForm } from "@/components/leads/conversion-form"
 import { LeadEditor } from "@/components/leads/lead-editor"
 import { canEdit } from "@/lib/auth/session"
 import { loadLeadFacets } from "@/lib/data/crm"
@@ -33,6 +34,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     <div className="space-y-8">
       <header className="space-y-3">
         <Link href="/dashboard/leads" className="text-sm text-muted-foreground underline">Leads</Link>
+        <Link href={`/dashboard/leads/${lead.id}/reports`} className="ml-4 text-sm underline">Reports</Link>
         <h1 className="font-display text-4xl">{[person?.first_name, person?.last_name].filter(Boolean).join(" ") || "Lead"}</h1>
         <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <Item label="Email" value={person?.email} />
@@ -45,6 +47,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <Item label="Date" value={formatDate(lead.createdAt)} />
         </dl>
         <LeadEditor leadId={lead.id} status={lead.status} tags={lead.tags} catalog={facets.tags} canEdit={editor} />
+        {editor ? <ConversionForm leadId={lead.id} /> : null}
       </header>
 
       <section className="grid gap-4 lg:grid-cols-2">

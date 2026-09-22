@@ -4,7 +4,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   BarChart3,
-  Bell,
   Files,
   LayoutDashboard,
   LayoutTemplate,
@@ -16,6 +15,7 @@ import {
 } from "lucide-react"
 import { signOut } from "@/actions/auth"
 import { Logo } from "@/components/brand/logo"
+import { NotificationMenu } from "@/components/dashboard/notification-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -73,11 +73,13 @@ export function DashboardShell({
   email,
   fullName,
   organizationName,
+  notifications,
 }: {
   children: React.ReactNode
   email: string
   fullName: string | null
   organizationName: string
+  notifications: { id: string; title: string; message: string; createdAt: string; read: boolean }[]
 }) {
   return (
     <div className="min-h-screen bg-background">
@@ -119,18 +121,7 @@ export function DashboardShell({
           </form>
 
           <div className="ml-auto flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="Notifications">
-                  <Bell />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <p className="px-2 py-3 text-sm text-muted-foreground">Aucune notification pour le moment.</p>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <NotificationMenu unread={notifications.filter((item) => !item.read).length} items={notifications} />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

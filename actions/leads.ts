@@ -7,6 +7,7 @@ import { getUser } from "@/lib/auth/session"
 import { ensureMembership } from "@/lib/data/membership"
 import { isLeadStatus, LEAD_STATUSES, MAX_TAGS_PER_LEAD, NOTE_LIMIT, TAG_NAME_LIMIT } from "@/lib/leads/qualification"
 import { sameOrganization } from "@/lib/leads/qualification"
+import { publishIntegrationEvent } from "@/lib/integrations/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
 const noteSchema = z.string().trim().min(1, "La note est vide.").max(NOTE_LIMIT, "La note dépasse 5 000 caractères.")
@@ -51,6 +52,7 @@ export async function changeLeadStatus(leadId: string, status: string) {
     kind: "status_changed",
     summary: `Statut passé à ${status}`,
   })
+  await publishIntegrationEvent({ organizationId: context.organizationId, type: "lead.updated", leadId })
   refresh(leadId)
   return { ok: true as const }
 }
@@ -75,6 +77,9 @@ export async function changeLeadsStatus(ids: string[], status: string) {
       kind: "status_changed" as const,
       summary: `Statut passé à ${status}`,
     })))
+    for (const lead of data) {
+      await publishIntegrationEvent({ organizationId: context.organizationId, type: "lead.updated", leadId: lead.id })
+    }
   }
   refresh()
   return { ok: true as const }

@@ -7,6 +7,7 @@ export type Json =
   | Json[]
 
 export type OrgRole = "owner" | "admin" | "member"
+export type AccessRole = "owner" | "admin" | "editor" | "analyst" | "viewer" | "member"
 export type ScorecardStatus = "draft" | "published" | "paused" | "archived"
 export type ScorecardLanguage = "fr" | "en"
 
@@ -17,6 +18,17 @@ export type Organization = {
   logo_url: string | null
   primary_color: string
   secondary_color: string
+  report_settings: Json
+  website: string
+  country: string
+  timezone: string
+  default_language: string
+  use_case: string
+  footer_text: string
+  favicon_url: string | null
+  font_preference: string
+  trial_used_at: string | null
+  onboarding_completed_at: string | null
   created_at: string
   updated_at: string
 }
@@ -51,6 +63,7 @@ export type Scorecard = {
   og_description: string | null
   og_image_url: string | null
   published_at: string | null
+  report_config: Json
   created_by: string | null
   created_at: string
   updated_at: string
@@ -112,6 +125,7 @@ type OrgMemberRow = {
   organization_id: string
   user_id: string
   role: OrgRole
+  access_role: AccessRole
   created_at: string
   updated_at: string
 }
@@ -192,6 +206,9 @@ export type Database = {
         description: string | null
         weight: number
         max_score: number
+        high_message: string
+        medium_message: string
+        low_message: string
         position: number
       }>
       scoring_rules: Table<{
@@ -246,6 +263,7 @@ export type Database = {
         city: string | null
         consent_at: string | null
         consent_given: boolean
+        consent_third_party: boolean
         consent_text: string | null
         phone_normalized: string | null
         whatsapp_normalized: string | null
@@ -372,6 +390,311 @@ export type Database = {
         summary: string
         created_at: string
       }>
+      integrations: Table<{
+        id: string
+        organization_id: string
+        provider: "webhook" | "brevo" | "hubspot" | "whatsapp" | "zapier" | "make" | "n8n" | "custom"
+        name: string
+        status: "active" | "disabled"
+        config: Json
+        encrypted_credentials: string | null
+        created_at: string
+        updated_at: string
+      }>
+      integration_events: Table<{
+        id: string
+        organization_id: string
+        event_type: string
+        payload: Json
+        created_at: string
+      }>
+      webhook_deliveries: Table<{
+        id: string
+        organization_id: string
+        integration_id: string
+        event_type: string
+        event_id: string
+        payload: Json
+        attempt: number
+        status: "pending" | "processing" | "delivered" | "failed" | "dead"
+        http_status: number | null
+        response_excerpt: string | null
+        next_retry_at: string | null
+        created_at: string
+        delivered_at: string | null
+      }>
+      integration_jobs: Table<{
+        id: string
+        organization_id: string
+        delivery_id: string | null
+        kind: string
+        payload: Json
+        status: "pending" | "processing" | "completed" | "failed"
+        attempts: number
+        next_run_at: string
+        locked_at: string | null
+        last_error: string | null
+        created_at: string
+      }>
+      automation_rules: Table<{
+        id: string
+        organization_id: string
+        name: string
+        enabled: boolean
+        trigger: string
+        conditions: Json
+        action_type: string
+        action_config: Json
+        created_at: string
+        updated_at: string
+      }>
+      automation_runs: Table<{
+        id: string
+        organization_id: string
+        rule_id: string
+        event_id: string
+        status: string
+        started_at: string
+        completed_at: string | null
+        error: string | null
+      }>
+      notifications: Table<{
+        id: string
+        organization_id: string
+        user_id: string | null
+        type: string
+        title: string
+        message: string
+        metadata: Json
+        dedupe_key: string | null
+        read_at: string | null
+        created_at: string
+      }>
+      conversions: Table<{
+        id: string
+        organization_id: string
+        lead_id: string | null
+        scorecard_id: string | null
+        session_id: string | null
+        conversion_type: "registration" | "purchase" | "booking" | "application" | "manual" | "course_registration" | "course_purchase" | "bootcamp_registration" | "exam_booking"
+        conversion_value: number | null
+        currency: string | null
+        external_reference: string | null
+        metadata: Json
+        converted_at: string
+        created_at: string
+      }>
+      api_keys: Table<{
+        id: string
+        organization_id: string
+        name: string
+        prefix: string
+        key_hash: string
+        scopes: string[]
+        last_used_at: string | null
+        expires_at: string | null
+        revoked_at: string | null
+        created_by: string | null
+        created_at: string
+      }>
+      api_key_requests: Table<{
+        id: number
+        api_key_id: string
+        created_at: string
+      }>
+      report_rules: Table<{
+        id: string
+        organization_id: string
+        scorecard_id: string
+        scoring_category_id: string | null
+        operator: "lt" | "lte" | "gte"
+        threshold: number
+        message: string
+        created_at: string
+      }>
+      assessment_reports: Table<{
+        id: string
+        organization_id: string
+        assessment_result_id: string
+        session_id: string
+        lead_id: string | null
+        scorecard_id: string | null
+        report_type: "participant" | "admin"
+        status: "pending" | "generating" | "ready" | "failed"
+        version: number
+        snapshot: Json
+        ai_status: "not_requested" | "pending" | "completed" | "failed"
+        ai_provider: string | null
+        ai_model: string | null
+        ai_prompt_version: string | null
+        ai_output: Json | null
+        storage_path: string | null
+        download_count: number
+        generated_at: string | null
+        created_at: string
+        updated_at: string
+      }>
+      report_shares: Table<{
+        id: string
+        organization_id: string
+        report_id: string
+        token_hash: string
+        expires_at: string
+        revoked_at: string | null
+        created_at: string
+      }>
+      report_events: Table<{
+        id: string
+        organization_id: string
+        report_id: string | null
+        event_type: string
+        created_at: string
+      }>
+      report_jobs: Table<{
+        id: string
+        organization_id: string
+        report_id: string
+        kind: "pdf" | "ai" | "email"
+        status: "pending" | "processing" | "completed" | "failed" | "dead"
+        attempts: number
+        next_run_at: string
+        locked_at: string | null
+        last_error: string | null
+        payload: Json
+        created_at: string
+      }>
+      subscriptions: Table<{
+        id: string
+        organization_id: string
+        provider: "stripe" | "internal" | "manual"
+        provider_customer_id: string | null
+        provider_subscription_id: string | null
+        plan: string
+        billing_interval: "monthly" | "yearly"
+        status: string
+        current_period_start: string | null
+        current_period_end: string | null
+        cancel_at_period_end: boolean
+        trial_end: string | null
+        past_due_at: string | null
+        created_at: string
+        updated_at: string
+      }>
+      usage_counters: Table<{
+        organization_id: string
+        metric: string
+        period_start: string
+        period_end: string
+        value: number
+        updated_at: string
+      }>
+      organization_entitlements: Table<{
+        id: string
+        organization_id: string
+        feature: string
+        enabled: boolean
+        limit_override: number | null
+        created_at: string
+      }>
+      organization_invitations: Table<{
+        id: string
+        organization_id: string
+        email: string
+        role: string
+        token_hash: string
+        expires_at: string
+        invited_by: string | null
+        accepted_at: string | null
+        created_at: string
+      }>
+      custom_domains: Table<{
+        id: string
+        organization_id: string
+        domain: string
+        status: "pending" | "verified" | "failed" | "disabled"
+        verification_token: string
+        verified_at: string | null
+        default_scorecard_id: string | null
+        ssl_status: "provisioning" | "active" | "error" | null
+        created_at: string
+      }>
+      email_jobs: Table<{
+        id: string
+        organization_id: string | null
+        template: string
+        recipient_hash: string
+        recipient: string
+        locale: string
+        payload: Json
+        idempotency_key: string
+        status: "pending" | "processing" | "sent" | "failed" | "dead"
+        attempts: number
+        next_run_at: string
+        last_error: string | null
+        provider_message_id: string | null
+        sent_at: string | null
+        created_at: string
+      }>
+      rate_limits: Table<{
+        bucket: string
+        window_start: string
+        hits: number
+      }>
+      platform_settings: Table<{
+        id: number
+        maintenance_message: string | null
+        updated_at: string
+      }>
+      stripe_events: Table<{
+        event_id: string
+        event_type: string
+        processed_at: string
+      }>
+      audit_logs: Table<{
+        id: string
+        organization_id: string
+        actor_id: string | null
+        action: string
+        metadata: Json
+        created_at: string
+      }>
+      platform_admins: Table<{
+        user_id: string
+        role: "super_admin" | "support" | "operations" | "finance"
+        created_at: string
+      }>
+      support_sessions: Table<{
+        id: string
+        platform_admin_id: string
+        organization_id: string
+        reason: string
+        status: "active" | "ended" | "expired"
+        started_at: string
+        expires_at: string
+        ended_at: string | null
+      }>
+      system_heartbeats: Table<{
+        name: string
+        last_seen_at: string
+        status: string
+        metadata: Json
+      }>
+      organization_suspensions: Table<{
+        id: string
+        organization_id: string
+        reason: string
+        created_by: string
+        created_at: string
+        lifted_at: string | null
+        lifted_by: string | null
+      }>
+      platform_alerts: Table<{
+        id: string
+        code: string
+        message: string
+        created_at: string
+        resolved_at: string | null
+      }>
     }
     Views: {
       scorecard_stats: {
@@ -456,6 +779,66 @@ export type Database = {
       scorecard_question_stats: {
         Args: { p_scorecard: string; p_from: string; p_to: string }
         Returns: Json
+      }
+      claim_report_jobs: {
+        Args: { p_limit: number }
+        Returns: {
+          id: string
+          organization_id: string
+          report_id: string
+          kind: "pdf" | "ai" | "email"
+          status: "pending" | "processing" | "completed" | "failed" | "dead"
+          attempts: number
+          next_run_at: string
+          locked_at: string | null
+          last_error: string | null
+          payload: Json
+          created_at: string
+        }[]
+      }
+      create_organization: {
+        Args: { p_name: string; p_slug: string; p_use_case: string; p_trial_days: number }
+        Returns: string
+      }
+      accept_organization_invitation: {
+        Args: { p_token_hash: string; p_member_limit: number | null }
+        Returns: string
+      }
+      transfer_organization_ownership: {
+        Args: { p_target: string }
+        Returns: undefined
+      }
+      platform_overview: {
+        Args: Record<string, never>
+        Returns: Json
+      }
+      resolve_verified_domain: {
+        Args: { p_host: string }
+        Returns: Json
+      }
+      consume_rate_limit: {
+        Args: { p_bucket: string; p_window_seconds: number; p_limit: number }
+        Returns: boolean
+      }
+      consume_usage: {
+        Args: { p_org: string; p_metric: string; p_limit: number | null; p_period_start: string; p_period_end: string }
+        Returns: number
+      }
+      claim_integration_jobs: {
+        Args: { p_limit: number }
+        Returns: {
+          id: string
+          organization_id: string
+          delivery_id: string | null
+          kind: string
+          payload: Json
+          status: "pending" | "processing" | "completed" | "failed"
+          attempts: number
+          next_run_at: string
+          locked_at: string | null
+          last_error: string | null
+          created_at: string
+        }[]
       }
     }
     Enums: {

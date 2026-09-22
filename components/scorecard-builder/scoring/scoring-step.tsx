@@ -77,7 +77,7 @@ export function ScoringStep({
     }
     onChange([
       ...categories,
-      { id: result.data.id, name: "Nouvelle catégorie", description: "", weight: 1, maxScore: 100, position: categories.length },
+      { id: result.data.id, name: "Nouvelle catégorie", description: "", weight: 1, maxScore: 100, highMessage: "", mediumMessage: "", lowMessage: "", position: categories.length },
     ])
   }
 

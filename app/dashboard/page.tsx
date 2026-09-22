@@ -7,7 +7,9 @@ import { OverviewCharts } from "@/components/dashboard/overview-charts"
 import { PeriodFilter } from "@/components/dashboard/period-filter"
 import { resolveRange } from "@/lib/analytics/range"
 import { getCommercialAnalytics } from "@/lib/data/crm"
+import { ensureMembership } from "@/lib/data/membership"
 import { getOverview } from "@/lib/data/overview"
+import { createClient } from "@/lib/supabase/server"
 import { countryName } from "@/lib/geo/countries"
 import { formatDate, formatNumber, formatPercent } from "@/lib/format"
 import { conversionRate, ctaClickRate } from "@/lib/leads/metrics"
@@ -21,7 +23,8 @@ export default async function DashboardPage({
 }) {
   const params = await searchParams
   const range = resolveRange(params)
-  const [overview, commercial] = await Promise.all([getOverview(range), getCommercialAnalytics(range)])
+  const [overview, commercial, membership] = await Promise.all([getOverview(range), getCommercialAnalytics(range), ensureMembership()])
+  const scorecardCount = membership ? await scorecardTotal(membership.organization.id) : 1
 
   return (
     <div className="space-y-8">
@@ -34,6 +37,18 @@ export default async function DashboardPage({
           <PeriodFilter range={range.key} from={range.fromInput} to={range.toInput} />
         </Suspense>
       </div>
+      {scorecardCount === 0 ? (
+        <section className="rounded-3xl border bg-card p-6">
+          <h2 className="font-display text-2xl">Premiers pas</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            <li>Create your first scorecard</li>
+            <li>Publish it</li>
+            <li>Receive first lead</li>
+            <li>Invite teammate</li>
+            <li>Connect integration</li>
+          </ul>
+        </section>
+      ) : null}
 
       {"error" in commercial ? (
         <p className="rounded-2xl border bg-card px-5 py-4 text-sm">{commercial.error}</p>
@@ -75,4 +90,10 @@ export default async function DashboardPage({
       )}
     </div>
   )
+}
+
+async function scorecardTotal(organizationId: string) {
+  const supabase = await createClient()
+  const { count } = await supabase.from("scorecards").select("id", { count: "exact", head: true }).eq("organization_id", organizationId)
+  return count ?? 0
 }

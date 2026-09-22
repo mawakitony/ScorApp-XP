@@ -1,10 +1,18 @@
+import Link from "next/link"
 import { InviteForm, ProfileForm, RemoveMemberButton } from "@/components/settings/settings-forms"
 import { canEdit, requireUser } from "@/lib/auth/session"
 import { ensureMembership, listMembers } from "@/lib/data/membership"
 
 export const metadata = { title: "Settings" }
 
-const roleLabels = { owner: "Propriétaire", admin: "Administrateur", member: "Membre" }
+const roleLabels: Record<string, string> = {
+  owner: "Propriétaire",
+  admin: "Administrateur",
+  editor: "Éditeur",
+  analyst: "Analyste",
+  viewer: "Lecteur",
+  member: "Membre",
+}
 
 export default async function SettingsPage() {
   const user = await requireUser()
@@ -18,6 +26,16 @@ export default async function SettingsPage() {
       <div>
         <p className="text-sm text-muted-foreground">{membership.organization.name}</p>
         <h1 className="font-display text-4xl">Settings</h1>
+        <p className="mt-3 flex flex-wrap gap-4 text-sm">
+          <Link href="/dashboard/settings/profile" className="underline">Profil</Link>
+          <Link href="/dashboard/settings/organization" className="underline">Organisation</Link>
+          <Link href="/dashboard/settings/team" className="underline">Équipe</Link>
+          <Link href="/dashboard/settings/billing" className="underline">Facturation</Link>
+          <Link href="/dashboard/settings/domains" className="underline">Domaines</Link>
+          <Link href="/dashboard/settings/integrations" className="underline">Intégrations</Link>
+          <Link href="/dashboard/settings/reports" className="underline">Rapports</Link>
+          <Link href="/dashboard/settings/ai" className="underline">IA</Link>
+        </p>
       </div>
 
       <section className="rounded-3xl border bg-card p-6">

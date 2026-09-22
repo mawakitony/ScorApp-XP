@@ -1,10 +1,10 @@
-import { canEdit } from "@/lib/auth/session"
+import { can } from "@/lib/auth/permissions"
 import { ensureMembership } from "@/lib/data/membership"
 import { createClient } from "@/lib/supabase/server"
 
 export async function requireScorecardEditor(scorecardId: string) {
   const membership = await ensureMembership()
-  if (!membership || !canEdit(membership.role)) {
+  if (!membership || !can({ role: membership.role }, "scorecard.edit")) {
     return { error: "Vous n'avez pas la permission de modifier cette scorecard." as const }
   }
 

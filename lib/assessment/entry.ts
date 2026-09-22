@@ -1,6 +1,8 @@
 import "server-only"
 
+import { headers } from "next/headers"
 import { publicAccess, type PublicAccess } from "@/lib/assessment/access"
+import { isPlatformHost, normalizeDomain } from "@/lib/billing/domains"
 import { isServiceRoleConfigured } from "@/lib/env"
 import { getMembership } from "@/lib/data/membership"
 import { getVisibleScorecard, type PublicScorecard } from "@/lib/data/scorecards"
@@ -23,8 +25,12 @@ export async function getPublicEntry(slug: string, preview: boolean): Promise<Pu
   }
 
   const admin = createAdminClient()
-  const { data } = await admin.from("scorecards").select("*").eq("slug", slug).maybeSingle()
-  if (!data) return null
+  const organizationId = await publicOrganizationId()
+  let query = admin.from("scorecards").select("*").eq("slug", slug)
+  if (organizationId) query = query.eq("organization_id", organizationId)
+  const { data: rows } = await query.limit(2)
+  if (!rows || rows.length !== 1) return null
+  const data = rows[0]
   const member = membership?.organization.id === data.organization_id
   const access = publicAccess(data.status, preview, member)
   if (access === "hidden") return null
@@ -40,4 +46,14 @@ export async function getPublicEntry(slug: string, preview: boolean): Promise<Pu
       questionCount: count ?? 0,
     },
   }
+}
+
+export async function publicOrganizationId() {
+  const host = (await headers()).get("host") ?? ""
+  if (isPlatformHost(host)) return null
+  const domain = normalizeDomain(host.split(":")[0] ?? "")
+  if (!domain || !isServiceRoleConfigured()) return null
+  const admin = createAdminClient()
+  const { data } = await admin.from("custom_domains").select("organization_id").eq("domain", domain).eq("status", "verified").maybeSingle()
+  return data?.organization_id ?? null
 }

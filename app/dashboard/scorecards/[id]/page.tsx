@@ -4,7 +4,7 @@ import { ScorecardForm } from "@/components/scorecard/scorecard-form"
 import { StatusBadge } from "@/components/scorecard/status-badge"
 import { Button } from "@/components/ui/button"
 import { updateScorecard } from "@/actions/scorecards"
-import { canEdit } from "@/lib/auth/session"
+import { can } from "@/lib/auth/permissions"
 import { ensureMembership } from "@/lib/data/membership"
 import { getScorecard } from "@/lib/data/scorecards"
 import { getAppUrl } from "@/lib/env"
@@ -22,7 +22,7 @@ export default async function ScorecardDetailPage({ params }: { params: Promise<
   if (!membership) return null
   const scorecard = await getScorecard(membership.organization.id, id)
   if (!scorecard) notFound()
-  const editor = canEdit(membership.role)
+  const editor = can({ role: membership.role }, "scorecard.edit")
 
   return (
     <div className="space-y-8">

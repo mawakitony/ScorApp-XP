@@ -1,6 +1,6 @@
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { UseTemplateButton } from "@/components/templates/use-template-button"
-import { canEdit } from "@/lib/auth/session"
+import { can } from "@/lib/auth/permissions"
 import { ensureMembership } from "@/lib/data/membership"
 import { listTemplates } from "@/lib/data/scorecards"
 
@@ -9,7 +9,7 @@ export const metadata = { title: "Templates" }
 export default async function TemplatesPage() {
   const membership = await ensureMembership()
   const templates = await listTemplates()
-  const editor = membership ? canEdit(membership.role) : false
+  const editor = membership ? can({ role: membership.role }, "scorecard.edit") : false
 
   return (
     <div className="space-y-6">

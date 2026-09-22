@@ -10,5 +10,11 @@ export async function resolve(specifier, context, nextResolve) {
     const found = [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")].find((candidate) => existsSync(candidate))
     if (found) return nextResolve(pathToFileURL(found).href, context)
   }
+  if (specifier.startsWith(".")) {
+    const parent = context.parentURL ? path.dirname(fileURLToPath(context.parentURL)) : root
+    const base = path.resolve(parent, specifier)
+    const found = [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")].find((candidate) => existsSync(candidate))
+    if (found) return nextResolve(pathToFileURL(found).href, context)
+  }
   return nextResolve(specifier, context)
 }

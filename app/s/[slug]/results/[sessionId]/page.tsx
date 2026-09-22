@@ -1,4 +1,5 @@
 import { Suspense } from "react"
+import Link from "next/link"
 import { notFound } from "next/navigation"
 import { AfterResultLead } from "@/components/assessment/after-result-lead"
 import { ResultView } from "@/components/assessment/result-view"
@@ -36,6 +37,11 @@ export default async function PublicResultPage({
         disclaimer={result.disclaimer}
         ctaHref={result.hasCta ? `/s/${slug}/results/${sessionId}/cta` : undefined}
       />
+      <div className="mx-auto max-w-xl px-5">
+        <Link href={`/s/${slug}/results/${sessionId}/report`} className="text-sm underline" style={{ color: result.primaryColor }}>
+          {result.language === "en" ? "Download my report" : "Télécharger mon rapport"}
+        </Link>
+      </div>
       {result.showLead && result.lead ? <AfterResultLead slug={slug} form={result.lead} /> : null}
       <div className="mx-auto max-w-xl px-5 pb-12">
         <Suspense fallback={null}>

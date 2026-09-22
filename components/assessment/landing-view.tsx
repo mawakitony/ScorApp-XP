@@ -23,6 +23,7 @@ export type LandingContent = {
   estimatedMinutes: number
   questionCount: number
   previewBanner?: boolean
+  poweredBy?: boolean
 }
 
 export function LandingView({
@@ -110,6 +111,7 @@ export function LandingView({
         {content.showPrivacy && content.privacyText ? (
           <p className="mt-8 max-w-xl text-sm text-[#5e6d7e]">{content.privacyText}</p>
         ) : null}
+        {content.poweredBy !== false ? <p className="mt-8 text-xs tracking-wide text-[#8a7340] uppercase">Powered by WOLOYEM Score</p> : null}
       </div>
     </div>
   )

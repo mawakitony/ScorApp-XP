@@ -1,3 +1,6 @@
+import { can } from "@/lib/auth/permissions"
+import { organizationHasFeature } from "@/lib/billing/account"
+import { ensureMembership } from "@/lib/data/membership"
 import { queryLeads } from "@/lib/data/crm"
 import { parseLeadFilters } from "@/lib/leads/filters"
 import { toCsv } from "@/lib/leads/csv"
@@ -10,6 +13,11 @@ const headers = [
 ]
 
 export async function GET(request: Request) {
+  const membership = await ensureMembership()
+  if (!membership || !can({ role: membership.role }, "lead.export")) return new Response("Accès refusé.", { status: 401 })
+  if (!(await organizationHasFeature(membership.organization.id, "csv_export"))) {
+    return new Response("L'export CSV est disponible à partir du plan Starter.", { status: 402 })
+  }
   const url = new URL(request.url)
   const filters = parseLeadFilters(Object.fromEntries(url.searchParams.entries()))
   const loaded = await queryLeads(filters, true)

@@ -3,6 +3,7 @@
 import { toast } from "sonner"
 import { TextField } from "@/components/scorecard-builder/editor-fields"
 import { createClient } from "@/lib/supabase/client"
+import { extensionForType, validateImageFile } from "@/lib/security/limits"
 
 export function AssetField({
   id,
@@ -22,7 +23,11 @@ export function AssetField({
   onChange: (value: string) => void
 }) {
   async function upload(file: File) {
-    const extension = file.name.split(".").pop()?.toLowerCase() || "png"
+    if (validateImageFile(file)) {
+      toast.error("Utilisez un PNG, JPEG ou WebP de 2 Mo maximum.")
+      return
+    }
+    const extension = extensionForType(file.type) ?? "png"
     const path = `${organizationId}/${scorecardId}/${kind}-${Date.now()}.${extension}`
     const supabase = createClient()
     const { error } = await supabase.storage.from("scorecard-assets").upload(path, file, {

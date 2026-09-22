@@ -4,6 +4,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { createResultRange, deleteResultRange, updateResultRange } from "@/actions/builder"
 import { ResultView } from "@/components/assessment/result-view"
+import { ReportSetup } from "@/components/scorecard-builder/results/report-setup"
 import { ConfirmDelete } from "@/components/scorecard-builder/confirm-delete"
 import { AreaField, TextField } from "@/components/scorecard-builder/editor-fields"
 import { Button } from "@/components/ui/button"
@@ -121,6 +122,7 @@ export function ResultsStep({
           </div>
         </div>
       )}
+      <ReportSetup scorecardId={scorecardId} categories={categories} />
     </div>
   )
 }

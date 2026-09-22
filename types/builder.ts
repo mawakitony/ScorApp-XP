@@ -46,6 +46,9 @@ export type BuilderScoringCategory = {
   description: string
   weight: number
   maxScore: number
+  highMessage: string
+  mediumMessage: string
+  lowMessage: string
   position: number
 }
 

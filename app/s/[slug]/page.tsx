@@ -4,11 +4,26 @@ import { notFound } from "next/navigation"
 import { LandingView } from "@/components/assessment/landing-view"
 import { StartAssessmentButton } from "@/components/assessment/start-button"
 import { getPublicEntry } from "@/lib/assessment/entry"
+import { loadEntitlements } from "@/lib/billing/account"
+import { resolvePublicBrand } from "@/lib/billing/brand"
 import { recordLandingView } from "@/lib/assessment/store"
+import { headers } from "next/headers"
+import { canonicalUrl, isPlatformHost } from "@/lib/billing/domains"
 import { getAppUrl } from "@/lib/env"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { parseBenefits, parseTestimonial } from "@/lib/scorecard/content"
 
 type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ preview?: string }> }
+
+async function verifiedDomain(organizationId: string) {
+  try {
+    const admin = createAdminClient()
+    const { data } = await admin.from("custom_domains").select("domain").eq("organization_id", organizationId).eq("status", "verified").limit(1).maybeSingle()
+    return data?.domain ?? null
+  } catch {
+    return null
+  }
+}
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params
@@ -19,12 +34,21 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const title = scorecard.seo_title || scorecard.page?.title || scorecard.name
   const description = scorecard.seo_description || scorecard.page?.subtitle || scorecard.description || undefined
   const image = scorecard.og_image_url || scorecard.cover_image_url || undefined
-  const canonical = `${getAppUrl()}/s/${scorecard.slug}`
+  const host = (await headers()).get("host") ?? ""
+  const onCustomDomain = !isPlatformHost(host)
+  const ownedDomain = onCustomDomain ? null : await verifiedDomain(scorecard.organization_id)
+  const canonical = canonicalUrl({
+    appUrl: getAppUrl(),
+    host: onCustomDomain ? host : ownedDomain ?? host,
+    slug: scorecard.slug,
+    customDomain: onCustomDomain || Boolean(ownedDomain),
+  })
+  const indexable = entry.access === "published" && (onCustomDomain || !ownedDomain)
   return {
     title,
     description,
     alternates: { canonical },
-    robots: entry.access === "published" ? { index: true, follow: true } : { index: false, follow: false },
+    robots: indexable ? { index: true, follow: true } : { index: false, follow: false },
     openGraph: {
       title: scorecard.og_title || title,
       description: scorecard.og_description || description,
@@ -51,6 +75,21 @@ export default async function PublicScorecardPage({ params, searchParams }: Prop
 
   const scorecard = entry.scorecard
   const page = scorecard.page
+  const entitlements = await loadEntitlements(scorecard.organization_id)
+  const brand = resolvePublicBrand({
+    entitlements,
+    organization: {
+      name: "WOLOYEM Score",
+      logoUrl: null,
+      primaryColor: scorecard.primary_color,
+      secondaryColor: scorecard.secondary_color,
+    },
+    scorecard: {
+      logoUrl: scorecard.logo_url,
+      primaryColor: scorecard.primary_color,
+      secondaryColor: scorecard.secondary_color,
+    },
+  })
   if (entry.access === "published") {
     await recordLandingView(scorecard.id, scorecard.organization_id)
   }
@@ -71,9 +110,10 @@ export default async function PublicScorecardPage({ params, searchParams }: Prop
         privacyText: scorecard.privacy_text ?? "",
         benefits: parseBenefits(page?.benefits ?? null),
         testimonial: parseTestimonial(page?.testimonial ?? null),
-        primaryColor: scorecard.primary_color,
-        secondaryColor: scorecard.secondary_color,
-        logoUrl: scorecard.logo_url ?? "",
+        primaryColor: brand.primaryColor,
+        secondaryColor: brand.secondaryColor,
+        logoUrl: brand.logoUrl,
+        poweredBy: brand.poweredBy,
         estimatedMinutes: scorecard.estimated_minutes,
         questionCount: scorecard.questionCount,
         previewBanner: entry.access !== "published",

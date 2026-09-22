@@ -70,43 +70,48 @@ $$;
 
 create or replace function public.is_org_member(org_id uuid)
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select exists (
+begin
+  return exists (
     select 1
     from public.organization_members m
     where m.organization_id = org_id
       and m.user_id = auth.uid()
   );
+end;
 $$;
 
 create or replace function public.has_org_role(org_id uuid, allowed public.org_role[])
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select exists (
+begin
+  return exists (
     select 1
     from public.organization_members m
     where m.organization_id = org_id
       and m.user_id = auth.uid()
       and m.role = any (allowed)
   );
+end;
 $$;
 
 create or replace function public.shares_organization(other_user uuid)
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select exists (
+begin
+  return exists (
     select 1
     from public.organization_members mine
     join public.organization_members theirs
@@ -114,21 +119,24 @@ as $$
     where mine.user_id = auth.uid()
       and theirs.user_id = other_user
   );
+end;
 $$;
 
 create or replace function public.can_edit_scorecard(scorecard uuid)
 returns boolean
-language sql
+language plpgsql
 stable
 security invoker
 set search_path = public
 as $$
-  select exists (
+begin
+  return exists (
     select 1
     from public.scorecards s
     where s.id = scorecard
       and public.has_org_role(s.organization_id, array['owner', 'admin']::public.org_role[])
   );
+end;
 $$;
 
 revoke all on function public.set_updated_at() from public;

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import { BuilderShell, isBuilderStep } from "@/components/scorecard-builder/builder-shell"
-import { canEdit } from "@/lib/auth/session"
+import { can } from "@/lib/auth/permissions"
 import { getBuilderBundle } from "@/lib/data/builder"
 import { ensureMembership } from "@/lib/data/membership"
 
@@ -20,7 +20,7 @@ export default async function BuilderPage({
   const query = await searchParams
   const membership = await ensureMembership()
   if (!membership) return null
-  if (!canEdit(membership.role)) notFound()
+  if (!can({ role: membership.role }, "scorecard.edit")) notFound()
 
   const loaded = await getBuilderBundle(membership.organization.id, id)
   if ("error" in loaded || !loaded.bundle) {

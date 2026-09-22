@@ -1,9 +1,10 @@
 import { isSupabaseConfigured } from "@/lib/env"
 import { createClient } from "@/lib/supabase/server"
-import type { OrgRole, Organization } from "@/types/database"
+import { normalizeAccessRole, type AccessRole } from "@/lib/auth/permissions"
+import type { Organization } from "@/types/database"
 
 export type Membership = {
-  role: OrgRole
+  role: AccessRole
   organization: Pick<
     Organization,
     "id" | "name" | "slug" | "logo_url" | "primary_color" | "secondary_color"
@@ -17,7 +18,7 @@ type JoinedProfile = {
 
 export type OrgMember = {
   userId: string
-  role: OrgRole
+  role: AccessRole
   fullName: string | null
   email: string | null
 }
@@ -30,22 +31,30 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 export async function getMembership(): Promise<Membership | null> {
   if (!isSupabaseConfigured()) return null
   const supabase = await createClient()
-  const { data, error } = await supabase
+  const selected = await supabase
     .from("organization_members")
     .select(
-      "role, organization:organizations(id, name, slug, logo_url, primary_color, secondary_color)",
+      "role, access_role, organization:organizations(id, name, slug, logo_url, primary_color, secondary_color)",
     )
     .limit(1)
     .maybeSingle()
+  const data = selected.error
+    ? (await supabase
+        .from("organization_members")
+        .select("role, organization:organizations(id, name, slug, logo_url, primary_color, secondary_color)")
+        .limit(1)
+        .maybeSingle()).data
+    : selected.data
 
-  if (error || !data) return null
+  if (!data) return null
 
   const organization = one(
     data.organization as Membership["organization"] | Membership["organization"][] | null,
   )
   if (!organization) return null
 
-  return { role: data.role, organization }
+  const source = data as { role: string; access_role?: string | null }
+  return { role: normalizeAccessRole(source.access_role || source.role), organization }
 }
 
 export async function ensureMembership() {
@@ -63,7 +72,7 @@ export async function listMembers(organizationId: string): Promise<OrgMember[]> 
   const supabase = await createClient()
   const { data, error } = await supabase
     .from("organization_members")
-    .select("user_id, role, profile:profiles(full_name, email)")
+    .select("user_id, role, access_role, profile:profiles(full_name, email)")
     .eq("organization_id", organizationId)
 
   if (error || !data) return []
@@ -72,7 +81,7 @@ export async function listMembers(organizationId: string): Promise<OrgMember[]> 
     const profile = one(row.profile as JoinedProfile | JoinedProfile[] | null)
     return {
       userId: row.user_id as string,
-      role: row.role,
+      role: normalizeAccessRole(row.access_role || row.role),
       fullName: profile?.full_name ?? null,
       email: profile?.email ?? null,
     }

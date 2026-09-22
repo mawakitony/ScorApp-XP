@@ -3,6 +3,8 @@ import "server-only"
 import { createHash } from "node:crypto"
 import { cookies, headers } from "next/headers"
 import { canContinueSession, canStartSession } from "@/lib/assessment/access"
+import { publicOrganizationId } from "@/lib/assessment/entry"
+import { allowRate } from "@/lib/security/rate"
 import { isSessionExpired, resumeIndex, validateAnswer, type AnswerDraft } from "@/lib/assessment/answers"
 import { SESSION_TTL_DAYS, SESSION_TTL_SECONDS, START_LIMIT_PER_HOUR, TEXT_LIMITS } from "@/lib/assessment/config"
 import { toPublicQuestion, type PublicQuestion } from "@/lib/assessment/dto"
@@ -11,10 +13,13 @@ import { logAssessment } from "@/lib/assessment/log"
 import { completionBlockers } from "@/lib/assessment/publish"
 import { applyScoreRules } from "@/lib/assessment/rules"
 import { cookieName, createSessionToken, hashSessionToken, sessionCookiePath } from "@/lib/assessment/token"
+import { allowNewAssessment, recordLead } from "@/lib/billing/account"
 import { isServiceRoleConfigured } from "@/lib/env"
 import { isCountryCode } from "@/lib/geo/countries"
 import { calculateAssessment, matchResultRange } from "@/lib/scoring/engine"
 import { parseLeadFields, parseQuestionSettings } from "@/lib/scorecard/content"
+import { publishIntegrationEvent } from "@/lib/integrations/dispatch"
+import { enqueueParticipantReport } from "@/lib/reports/queue"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { leadFieldKeys } from "@/lib/validators/builder"
 import type { BuilderLeadForm } from "@/types/builder"
@@ -103,11 +108,11 @@ export async function startSession(input: {
   const admin = adminOrNull()
   if (!admin) return { error: "Le parcours est momentanément indisponible." }
 
-  const { data: scorecard, error: scorecardError } = await admin
-    .from("scorecards")
-    .select("id, organization_id, slug, status")
-    .eq("slug", input.slug)
-    .maybeSingle()
+  const organizationId = await publicOrganizationId()
+  let scorecardQuery = admin.from("scorecards").select("id, organization_id, slug, status").eq("slug", input.slug)
+  if (organizationId) scorecardQuery = scorecardQuery.eq("organization_id", organizationId)
+  const { data: scorecards, error: scorecardError } = await scorecardQuery.limit(2)
+  const scorecard = scorecards?.length === 1 ? scorecards[0] : null
   if (scorecardError || !scorecard || !canStartSession(scorecard.status)) {
     return { error: "Cette évaluation n'accepte pas de nouvelle session." }
   }
@@ -120,6 +125,9 @@ export async function startSession(input: {
     .eq("client_hash", hash)
     .gte("created_at", since)
   if ((count ?? 0) >= START_LIMIT_PER_HOUR) return { error: "Trop de tentatives. Réessayez plus tard." }
+  if (!await allowRate(`assessment-start:${hash}`, 3600, 30)) return { error: "Trop de tentatives. Réessayez plus tard." }
+  const allowed = await allowNewAssessment(scorecard.organization_id)
+  if (!allowed) return { error: "This assessment is temporarily unavailable." }
 
   const token = createSessionToken()
   const tokenHash = hashSessionToken(token)
@@ -161,6 +169,12 @@ export async function startSession(input: {
     event_type: "assessment_started",
     metadata: {},
   })
+  await publishIntegrationEvent({
+    organizationId: scorecard.organization_id,
+    type: "assessment.started",
+    sessionId: session.id,
+    scorecardId: scorecard.id,
+  })
   await writeSessionCookie(scorecard.slug, token)
   return { sessionId: session.id }
 }
@@ -184,7 +198,7 @@ export async function loadVisitorSession(slug: string) {
 
   const { data: scorecard } = await admin
     .from("scorecards")
-    .select("id, organization_id, slug, name, status, logo_url, primary_color, secondary_color, privacy_text")
+    .select("id, organization_id, slug, name, status, language, logo_url, primary_color, secondary_color, privacy_text")
     .eq("id", session.scorecard_id)
     .maybeSingle()
   if (!scorecard || scorecard.slug !== slug) return { error: "Session introuvable." as const }
@@ -352,19 +366,22 @@ export async function submitVisitorLead(slug: string, values: Record<string, str
   }
 
   const { data: existingLead } = await loaded.admin.from("leads").select("id").eq("session_id", loaded.session.id).maybeSingle()
+  let createdLeadId: string | null = null
   if (!existingLead) {
     const { data: utm } = await loaded.admin.from("utm_tracking").select("utm_source").eq("session_id", loaded.session.id).maybeSingle()
+    await recordLead(loaded.scorecard.organization_id)
     const created = await loaded.admin.from("leads").insert({
       organization_id: loaded.scorecard.organization_id,
       scorecard_id: loaded.scorecard.id,
       session_id: loaded.session.id,
       respondent_id: respondentId,
       source: utm?.utm_source || "direct",
-    })
+    }).select("id").maybeSingle()
     if (created.error && created.error.code !== "23505") {
       logAssessment("assessment.lead.failed", { slug })
       return { error: genericError }
     }
+    createdLeadId = created.data?.id ?? null
   }
 
   await loaded.admin.from("assessment_sessions").update({ respondent_id: respondentId, last_activity_at: new Date().toISOString() }).eq("id", loaded.session.id)
@@ -375,6 +392,15 @@ export async function submitVisitorLead(slug: string, values: Record<string, str
     event_type: "lead_submitted",
     metadata: {},
   })
+  if (createdLeadId) {
+    await publishIntegrationEvent({
+      organizationId: loaded.scorecard.organization_id,
+      type: "lead.created",
+      leadId: createdLeadId,
+      sessionId: loaded.session.id,
+      scorecardId: loaded.scorecard.id,
+    })
+  }
   return {}
 }
 
@@ -492,6 +518,23 @@ export async function completeVisitorAssessment(slug: string) {
     logAssessment("assessment.complete.failed", { slug })
     return { error: friendlyError(error.message) ?? genericError }
   }
+  await publishIntegrationEvent({
+    organizationId: loaded.scorecard.organization_id,
+    type: "assessment.completed",
+    sessionId: loaded.session.id,
+    scorecardId: loaded.scorecard.id,
+  })
+  await publishIntegrationEvent({
+    organizationId: loaded.scorecard.organization_id,
+    type: "assessment.result_created",
+    sessionId: loaded.session.id,
+    scorecardId: loaded.scorecard.id,
+  })
+  await enqueueParticipantReport({
+    organizationId: loaded.scorecard.organization_id,
+    sessionId: loaded.session.id,
+    scorecardId: loaded.scorecard.id,
+  })
   return { sessionId: loaded.session.id, result: data }
 }
 
@@ -549,6 +592,7 @@ export async function loadPublicResult(slug: string, sessionId: string) {
     disclaimer: loaded.scorecard.privacy_text ?? "",
     primaryColor: loaded.scorecard.primary_color,
     logoUrl: loaded.scorecard.logo_url,
+    language: loaded.scorecard.language,
     name: loaded.scorecard.name,
     showLead: Boolean(lead && !existingLead && (lead.timing === "after_results" || lead.timing === "during")),
     lead,
@@ -583,6 +627,12 @@ export async function recordCtaClick(slug: string, sessionId: string) {
     session_id: sessionId,
     event_type: "cta_clicked",
     metadata: {},
+  })
+  await publishIntegrationEvent({
+    organizationId: loaded.scorecard.organization_id,
+    type: "cta.clicked",
+    sessionId,
+    scorecardId: loaded.scorecard.id,
   })
   return recommendation.cta_url
 }

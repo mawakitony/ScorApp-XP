@@ -1,7 +1,7 @@
 import { CreateScorecardDialog } from "@/components/scorecard/create-scorecard-dialog"
 import { ScorecardsTable } from "@/components/scorecard/scorecards-table"
 import { EmptyState } from "@/components/dashboard/empty-state"
-import { canEdit } from "@/lib/auth/session"
+import { can } from "@/lib/auth/permissions"
 import { ensureMembership } from "@/lib/data/membership"
 import { listScorecards } from "@/lib/data/scorecards"
 
@@ -25,7 +25,7 @@ export default async function ScorecardsPage({
           <p className="text-sm text-muted-foreground">Bibliothèque</p>
           <h1 className="font-display text-4xl">Scorecards</h1>
         </div>
-        {canEdit(membership.role) ? <CreateScorecardDialog /> : null}
+        {can({ role: membership.role }, "scorecard.edit") ? <CreateScorecardDialog /> : null}
       </div>
 
       <form action="/dashboard/scorecards" className="md:hidden">

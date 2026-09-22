@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
-import { canEdit } from "@/lib/auth/session"
+import { can } from "@/lib/auth/permissions"
+import { loadEntitlements } from "@/lib/billing/account"
 import { ensureMembership } from "@/lib/data/membership"
 import { emptyToNull, slugify } from "@/lib/format"
 import { createClient } from "@/lib/supabase/server"
@@ -12,7 +13,7 @@ export type ActionResult = { error?: string; id?: string }
 
 async function editorContext() {
   const membership = await ensureMembership()
-  if (!membership || !canEdit(membership.role)) {
+  if (!membership || !can({ role: membership.role }, "scorecard.edit")) {
     return { error: "Vous n'avez pas la permission de modifier les scorecards." as const }
   }
   const supabase = await createClient()
@@ -46,6 +47,19 @@ function fields(values: ScorecardFormValues) {
   }
 }
 
+async function scorecardQuota(supabase: Awaited<ReturnType<typeof createClient>>, organizationId: string) {
+  const entitlements = await loadEntitlements(organizationId)
+  const { count } = await supabase.from("scorecards").select("id", { count: "exact", head: true }).eq("organization_id", organizationId)
+  const used = count ?? 0
+  const limit = entitlements.limits.scorecards
+  if (limit !== null && used >= limit) {
+    return used > limit
+      ? "Your current usage exceeds your new plan limit."
+      : "La limite de scorecards de votre plan est atteinte."
+  }
+  return null
+}
+
 function mapError(message: string) {
   if (message.includes("scorecards_slug") || message.includes("duplicate") || message.includes("23505")) {
     return "Ce slug est déjà utilisé."
@@ -61,6 +75,8 @@ export async function createScorecard(values: ScorecardFormValues): Promise<Acti
   if ("error" in context && context.error) return { error: context.error }
 
   const { supabase, user, membership } = context
+  const quota = await scorecardQuota(supabase, membership.organization.id)
+  if (quota) return { error: quota }
   const { data, error } = await supabase
     .from("scorecards")
     .insert({
@@ -146,6 +162,8 @@ export async function deleteScorecard(id: string) {
 export async function duplicateScorecard(id: string) {
   const context = await editorContext()
   if ("error" in context && context.error) return { error: context.error }
+  const quota = await scorecardQuota(context.supabase, context.membership.organization.id)
+  if (quota) return { error: quota }
 
   const { data, error } = await context.supabase.rpc("duplicate_scorecard", { source_id: id })
   if (error || !data) return { error: "La duplication a échoué." }
@@ -157,6 +175,8 @@ export async function createScorecardFromTemplate(templateId: string) {
   const context = await editorContext()
   if ("error" in context && context.error) return { error: context.error }
   const { supabase, membership, user } = context
+  const quota = await scorecardQuota(supabase, membership.organization.id)
+  if (quota) return { error: quota }
 
   const { data: template } = await supabase
     .from("templates")

@@ -144,6 +144,7 @@ export async function getScorecardBySlug(slug: string) {
     og_description: data.og_description,
     og_image_url: data.og_image_url,
     published_at: data.published_at,
+    report_config: data.report_config,
     created_by: data.created_by,
     created_at: data.created_at,
     updated_at: data.updated_at,
