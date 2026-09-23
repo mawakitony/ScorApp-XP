@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
-import { BuilderShell, isBuilderStep } from "@/components/scorecard-builder/builder-shell"
+import { BuilderShell } from "@/components/scorecard-builder/builder-shell"
+import { isBuilderStep } from "@/lib/constants"
 import { can } from "@/lib/auth/permissions"
 import { getBuilderBundle } from "@/lib/data/builder"
 import { ensureMembership } from "@/lib/data/membership"

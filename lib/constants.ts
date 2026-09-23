@@ -33,6 +33,10 @@ export const BUILDER_STEPS = [
 
 export type BuilderStepId = (typeof BUILDER_STEPS)[number]["id"]
 
+export function isBuilderStep(value: string | undefined): value is BuilderStepId {
+  return BUILDER_STEPS.some((step) => step.id === value)
+}
+
 export const QUESTION_TYPE_LABELS = {
   single_choice: "Choix unique",
   multiple_choice: "Choix multiple",

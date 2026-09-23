@@ -12,7 +12,7 @@ import { ResultsStep } from "@/components/scorecard-builder/results/results-step
 import { SaveReporterProvider } from "@/components/scorecard-builder/save-status"
 import { ScoringStep } from "@/components/scorecard-builder/scoring/scoring-step"
 import { SetupStep } from "@/components/scorecard-builder/setup/setup-step"
-import { BUILDER_STEPS, type BuilderStepId } from "@/lib/constants"
+import { type BuilderStepId } from "@/lib/constants"
 import type { LandingContent } from "@/components/assessment/landing-view"
 import type { BuilderBundle, SaveState } from "@/types/builder"
 import type { LandingInput, SetupInput } from "@/lib/validators/builder"
@@ -208,6 +208,3 @@ function toLandingContent(bundle: BuilderBundle): LandingContent {
   }
 }
 
-export function isBuilderStep(value: string | undefined): value is BuilderStepId {
-  return BUILDER_STEPS.some((step) => step.id === value)
-}

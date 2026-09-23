@@ -1,12 +1,19 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { canonicalUrl, isPlatformHost, normalizeDomain, publicPathForHost, resolveTenantFromHost } from "../billing/domains.ts"
+import { isBuilderStep } from "../constants.ts"
 import { safeProviderFailure } from "../email/provider-error.ts"
 import { invitationIdempotencyKey, nextEmailAttempt, renderEmail } from "../email/templates.ts"
 import { e2eDatabaseAllowed, missingProductionEnv } from "../env.ts"
 import { redact } from "../observability/logger.ts"
 import { publicError } from "../observability/errors.ts"
 import { contentSecurityPolicy, safeReportPath, validateImageFile } from "../security/limits.ts"
+
+test("builder step check stays usable from a server page", () => {
+  assert.equal(isBuilderStep("setup"), true)
+  assert.equal(isBuilderStep("not-a-step"), false)
+  assert.equal(isBuilderStep(undefined), false)
+})
 
 test("platform hosts are never treated as a customer domain", () => {
   assert.equal(isPlatformHost("localhost:3000"), true)
