@@ -170,7 +170,6 @@ export async function createQuestion(
 
   if (error || !data) return { error: "La question n'a pas pu être créée." }
   const options = await seedOptions(context.supabase, data.id, type)
-  refresh(context.scorecardId)
   return { data: { id: data.id, options } }
 }
 
@@ -335,7 +334,6 @@ export async function createQuestionOption(scorecardId: string, questionId: stri
     .select("id")
     .single()
   if (error || !data) return { error: "L'option n'a pas pu être ajoutée." }
-  refresh(context.scorecardId)
   return { data: { id: data.id } }
 }
 
