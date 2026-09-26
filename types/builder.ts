@@ -1,3 +1,5 @@
+import type { DisplayRule } from "@/lib/assessment/visibility"
+import type { EligibilityRule } from "@/lib/scoring/eligibility"
 import type { QuestionType } from "@/lib/validators/builder"
 import type { Scorecard, ScorecardStatus } from "@/types/database"
 
@@ -28,6 +30,7 @@ export type BuilderQuestion = {
   isScored: boolean
   position: number
   settings: QuestionSettings
+  displayRule: DisplayRule | null
   options: BuilderOption[]
 }
 
@@ -128,7 +131,14 @@ export type BuilderBundle = {
   questionCategories: BuilderQuestionCategory[]
   scoringCategories: BuilderScoringCategory[]
   ranges: BuilderRange[]
+  rules: EligibilityRule[]
+  caps: { id: string; maxPercent: number }[]
   leadForm: BuilderLeadForm
+  publication?: {
+    publishedAt: string | null
+    unpublished: boolean
+    canUndo: boolean
+  }
 }
 
 export type SaveState = {

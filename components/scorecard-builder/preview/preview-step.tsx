@@ -5,7 +5,9 @@ import { LandingView, type LandingContent } from "@/components/assessment/landin
 import { QuestionCard, answerIsEmpty, emptyAnswer, type LocalAnswer } from "@/components/assessment/question-card"
 import { ResultView } from "@/components/assessment/result-view"
 import { Button } from "@/components/ui/button"
-import { calculateAssessment } from "@/lib/scoring/engine"
+import { isQuestionVisible, pruneHiddenAnswers, type VisibilityQuestion } from "@/lib/assessment/visibility"
+import { toEngineQuestion } from "@/lib/scoring/from-builder"
+import { resolveAssessment } from "@/lib/scoring/outcome"
 import { cn } from "@/lib/utils"
 import type { BuilderBundle } from "@/types/builder"
 import { leadFieldKeys } from "@/lib/validators/builder"
@@ -17,34 +19,37 @@ export function PreviewStep({ bundle }: { bundle: BuilderBundle }) {
   const [screen, setScreen] = useState<Screen>("landing")
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, LocalAnswer>>({})
-  const questions = bundle.questions
+  const family = toPreviewVisibility(bundle.questions)
+  const drafts = Object.entries(answers).map(([questionId, answer]) => ({
+    questionId,
+    optionIds: answer.optionIds,
+    scaleValue: answer.scaleValue,
+    valueText: answer.text,
+  }))
+  const questions = bundle.questions.filter((question) => {
+    const item = family.find((entry) => entry.id === question.id)
+    return item ? isQuestionVisible(item, family, drafts) : true
+  })
   const question = questions[index]
   const content = toLanding(bundle)
 
   const score = useMemo(() => {
-    return calculateAssessment({
-      questions: questions.map((item) => ({
-        id: item.id,
-        isScored: item.isScored,
-        scoringCategoryId: item.scoringCategoryId,
-        type: item.type,
-        options: item.options.map((option) => ({ id: option.id, score: option.score })),
-        scaleFrom: item.settings.scaleFrom,
-        scaleTo: item.settings.scaleTo,
-        scoreFrom: item.settings.scoreFrom,
-        scoreTo: item.settings.scoreTo,
-      })),
-      answers: questions.map((item) => ({
+    return resolveAssessment({
+      questions: bundle.questions.map(toEngineQuestion),
+      answers: bundle.questions.map((item) => ({
         questionId: item.id,
         optionIds: answers[item.id]?.optionIds ?? [],
         scaleValue: answers[item.id]?.scaleValue,
+        valueText: answers[item.id]?.text,
       })),
       categories: bundle.scoringCategories.map((category) => ({ id: category.id, weight: category.weight })),
       ranges: bundle.ranges.map((range) => ({ id: range.id, minPercent: range.minPercent, maxPercent: range.maxPercent, label: range.label })),
+      caps: bundle.caps.map((cap) => ({ ruleType: "cap", config: { maxPercent: cap.maxPercent } })),
+      rules: bundle.rules,
     })
-  }, [answers, bundle.ranges, bundle.scoringCategories, questions])
+  }, [answers, bundle.caps, bundle.questions, bundle.ranges, bundle.rules, bundle.scoringCategories])
 
-  const matched = bundle.ranges.find((range) => range.id === score.resultRange?.id) ?? null
+  const matched = bundle.ranges.find((range) => range.id === score.finalRange?.id) ?? null
   const currentAnswer = question ? answers[question.id] ?? emptyAnswer() : emptyAnswer()
   const blocked = question ? question.isRequired && answerIsEmpty(question, currentAnswer) : false
 
@@ -60,8 +65,8 @@ export function PreviewStep({ bundle }: { bundle: BuilderBundle }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-3xl">Preview</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Les réponses restent dans le navigateur. Aucune session n&apos;est créée.</p>
+          <h2 className="font-display text-3xl">Aperçu</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Ceci est le brouillon, pas la version publique. Les réponses restent dans le navigateur et aucune session n&apos;est créée.</p>
         </div>
         <div className="flex rounded-xl border p-1" role="group" aria-label="Format d'aperçu">
           {(["desktop", "mobile"] as const).map((item) => (
@@ -80,7 +85,7 @@ export function PreviewStep({ bundle }: { bundle: BuilderBundle }) {
       <div className={cn("mx-auto overflow-hidden rounded-[28px] border bg-[#f7f4ee] shadow-sm", device === "mobile" ? "max-w-[390px]" : "max-w-3xl")}>
         {screen === "landing" ? (
           <LandingView
-            content={{ ...content, previewBanner: bundle.scorecard.status !== "published" }}
+            content={{ ...content, questionCount: questions.length, previewBanner: bundle.scorecard.status !== "published" }}
             onStart={() => setScreen(bundle.leadForm.timing === "before" ? "lead" : "questions")}
           />
         ) : null}
@@ -100,15 +105,38 @@ export function PreviewStep({ bundle }: { bundle: BuilderBundle }) {
                 title: question.title,
                 description: question.description,
                 isRequired: question.isRequired,
+                position: question.position,
                 scaleFrom: question.settings.scaleFrom,
                 scaleTo: question.settings.scaleTo,
                 options: question.options.map((option) => ({ id: option.id, label: option.label, value: option.value })),
+                displayRule: question.displayRule,
               }}
               index={index}
               total={questions.length}
               answer={currentAnswer}
               primaryColor={bundle.scorecard.primary_color}
-              onChange={(answer) => setAnswers((current) => ({ ...current, [question.id]: answer }))}
+              onChange={(answer) => {
+                const next = { ...answers, [question.id]: answer }
+                const pruned = pruneHiddenAnswers(family, Object.entries(next).map(([questionId, value]) => ({
+                  questionId,
+                  optionIds: value.optionIds,
+                  scaleValue: value.scaleValue,
+                  valueText: value.text,
+                })))
+                const kept: Record<string, LocalAnswer> = {}
+                for (const item of pruned.answers) {
+                  const current = next[item.questionId]
+                  if (current) kept[item.questionId] = current
+                }
+                if (question && !kept[question.id]) kept[question.id] = answer
+                setAnswers(kept)
+                const stillVisible = bundle.questions.filter((item) => {
+                  const entry = family.find((candidate) => candidate.id === item.id)
+                  const nextDrafts = Object.entries(kept).map(([questionId, value]) => ({ questionId, optionIds: value.optionIds, scaleValue: value.scaleValue, valueText: value.text }))
+                  return entry ? isQuestionVisible(entry, family, nextDrafts) : true
+                })
+                if (index >= stillVisible.length) setIndex(Math.max(0, stillVisible.length - 1))
+              }}
             />
             <div className="flex justify-between px-5 pb-8">
               <Button
@@ -139,7 +167,7 @@ export function PreviewStep({ bundle }: { bundle: BuilderBundle }) {
         {screen === "results" ? (
           <div>
             <ResultView
-              percentage={score.weightedScore}
+              percentage={score.officialPercent}
               range={matched}
               categories={bundle.scoringCategories}
               categoryScores={score.categoryScores}
@@ -219,6 +247,16 @@ function LeadPreview({
       </div>
     </div>
   )
+}
+
+function toPreviewVisibility(questions: BuilderBundle["questions"]): VisibilityQuestion[] {
+  return questions.map((question) => ({
+    id: question.id,
+    position: question.position,
+    type: question.type,
+    options: question.options.map((option) => ({ id: option.id, label: option.label, value: option.value })),
+    displayRule: question.displayRule,
+  }))
 }
 
 function toLanding(bundle: BuilderBundle): LandingContent {

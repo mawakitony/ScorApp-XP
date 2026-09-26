@@ -11,12 +11,14 @@ import { toPublicQuestion, type PublicQuestion } from "@/lib/assessment/dto"
 import { normalizePerson } from "@/lib/assessment/lead"
 import { logAssessment } from "@/lib/assessment/log"
 import { completionBlockers } from "@/lib/assessment/publish"
-import { applyScoreRules } from "@/lib/assessment/rules"
+import { readPublishedDocument } from "@/lib/assessment/public-release"
+import { blockingQuestion, isQuestionVisible, parseDisplayRule, pruneHiddenAnswers, type VisibilityAnswer, type VisibilityQuestion } from "@/lib/assessment/visibility"
 import { cookieName, createSessionToken, hashSessionToken, sessionCookiePath } from "@/lib/assessment/token"
 import { allowNewAssessment, recordLead } from "@/lib/billing/account"
 import { isServiceRoleConfigured } from "@/lib/env"
 import { isCountryCode } from "@/lib/geo/countries"
-import { calculateAssessment, matchResultRange } from "@/lib/scoring/engine"
+import { eligibilityFromStored } from "@/lib/scoring/parse-rules"
+import { resolveAssessment } from "@/lib/scoring/outcome"
 import { parseLeadFields, parseQuestionSettings } from "@/lib/scorecard/content"
 import { publishIntegrationEvent } from "@/lib/integrations/dispatch"
 import { enqueueParticipantReport } from "@/lib/reports/queue"
@@ -212,16 +214,45 @@ export async function loadVisitorSession(slug: string) {
 export async function loadQuestions(scorecardId: string) {
   const admin = adminOrNull()
   if (!admin) return []
+  const published = await readPublishedDocument(admin, scorecardId)
+  if (published) {
+    return published.questions.map((question) => ({
+      row: {
+        id: question.id,
+        type: question.type,
+        title: question.title,
+        description: question.description,
+        is_required: question.isRequired,
+        is_scored: question.isScored,
+        scoring_category_id: question.scoringCategoryId,
+        settings: question.settings,
+        position: question.position,
+      },
+      publicQuestion: toPublicQuestion({
+        id: question.id,
+        type: question.type,
+        title: question.title,
+        description: question.description,
+        isRequired: question.isRequired,
+        position: question.position,
+        settings: question.settings,
+        options: question.options,
+      }),
+      options: question.options.map((option) => ({ ...option, question_id: question.id })),
+    }))
+  }
   const { data: questions } = await admin
     .from("questions")
-    .select("id, type, title, description, is_required, is_scored, scoring_category_id, settings, position")
+    .select("id, type, title, description, is_required, is_scored, scoring_category_id, settings, position, archived_at")
     .eq("scorecard_id", scorecardId)
     .order("position")
-  const ids = (questions ?? []).map((question) => question.id)
+  const active = (questions ?? []).filter((question) => !question.archived_at)
+  const ids = active.map((question) => question.id)
   const { data: options } = ids.length
-    ? await admin.from("question_options").select("id, question_id, label, value, score, position").in("question_id", ids).order("position")
+    ? await admin.from("question_options").select("id, question_id, label, value, score, position, archived_at").in("question_id", ids).order("position")
     : { data: [] }
-  return (questions ?? []).map((question) => ({
+  const activeOptions = (options ?? []).filter((option) => !option.archived_at)
+  return active.map((question) => ({
     row: question,
     publicQuestion: toPublicQuestion({
       id: question.id,
@@ -229,11 +260,38 @@ export async function loadQuestions(scorecardId: string) {
       title: question.title,
       description: question.description,
       isRequired: question.is_required,
+      position: question.position,
       settings: question.settings,
-      options: (options ?? []).filter((option) => option.question_id === question.id),
+      options: activeOptions.filter((option) => option.question_id === question.id),
     }),
-    options: (options ?? []).filter((option) => option.question_id === question.id),
+    options: activeOptions.filter((option) => option.question_id === question.id),
   }))
+}
+
+function toVisibility(questions: Awaited<ReturnType<typeof loadQuestions>>): VisibilityQuestion[] {
+  return questions.map((question) => ({
+    id: question.row.id,
+    position: question.row.position,
+    type: question.row.type,
+    options: question.options.map((option) => ({ id: option.id, label: option.label, value: option.value ?? "" })),
+    displayRule: parseDisplayRule(question.row.settings),
+  }))
+}
+
+function responsesToVisibility(responses: { question_id: string; option_id: string | null; value_text: string | null; value_number: number | null }[]): VisibilityAnswer[] {
+  const grouped = new Map<string, VisibilityAnswer>()
+  for (const row of responses) {
+    const current = grouped.get(row.question_id) ?? { questionId: row.question_id, optionIds: [] }
+    if (row.option_id) current.optionIds = [...(current.optionIds ?? []), row.option_id]
+    if (row.value_text) current.valueText = row.value_text
+    if (row.value_number !== null && row.value_number !== undefined) current.scaleValue = Number(row.value_number)
+    grouped.set(row.question_id, current)
+  }
+  return [...grouped.values()]
+}
+
+async function visibilityAnswers(sessionId: string) {
+  return responsesToVisibility(await loadSavedAnswers(sessionId))
 }
 
 export async function saveVisitorAnswer(slug: string, questionId: string, answer: AnswerDraft) {
@@ -242,6 +300,11 @@ export async function saveVisitorAnswer(slug: string, questionId: string, answer
   const questions = await loadQuestions(loaded.scorecard.id)
   const question = questions.find((item) => item.publicQuestion.id === questionId)
   if (!question) return { error: "Cette réponse n'est pas valide." }
+  const family = toVisibility(questions)
+  const current = family.find((item) => item.id === questionId)
+  if (!current || !isQuestionVisible(current, family, await visibilityAnswers(loaded.session.id))) {
+    return { error: "Cette question n'est pas affichée." }
+  }
   const settings = parseQuestionSettings(question.row.settings, question.publicQuestion.type)
   const validation = validateAnswer(
     {
@@ -280,6 +343,16 @@ export async function saveVisitorAnswer(slug: string, questionId: string, answer
     event_type: "question_answered",
     metadata: { questionId },
   })
+  return {}
+}
+
+export async function clearVisitorAnswer(slug: string, questionId: string) {
+  const loaded = await loadVisitorSession(slug)
+  if ("error" in loaded) return { error: loaded.error }
+  const questions = await loadQuestions(loaded.scorecard.id)
+  if (!questions.some((question) => question.row.id === questionId)) return { error: "Cette question n'appartient pas à la scorecard." }
+  const { error } = await loaded.admin.from("responses").delete().eq("session_id", loaded.session.id).eq("question_id", questionId)
+  if (error) return { error: "La réponse masquée n'a pas pu être retirée." }
   return {}
 }
 
@@ -439,13 +512,30 @@ export async function completeVisitorAssessment(slug: string) {
   const admin = loaded.admin
   const questions = await loadQuestions(loaded.scorecard.id)
   const responses = await loadSavedAnswers(loaded.session.id)
-  const answered = new Set(responses.map((response) => response.question_id))
-  const missing = questions.find((question) => question.row.is_required && !answered.has(question.row.id))
+  const family = toVisibility(questions)
+  const savedAnswers = responsesToVisibility(responses)
+  const hiddenIds = pruneHiddenAnswers(family, savedAnswers).removedIds
+  if (hiddenIds.length > 0) {
+    await admin.from("responses").delete().eq("session_id", loaded.session.id).in("question_id", hiddenIds)
+  }
+  const answered = new Set(responses.map((response) => response.question_id).filter((id) => !hiddenIds.includes(id)))
+  const missing = blockingQuestion(
+    family.map((question) => ({ ...question, isRequired: questions.find((item) => item.row.id === question.id)?.row.is_required ?? false })),
+    savedAnswers.filter((answer) => !hiddenIds.includes(answer.questionId)),
+    answered,
+  )
   if (missing) return { error: "Il reste des questions obligatoires." }
 
-  const { data: categories } = await admin.from("scoring_categories").select("id, weight").eq("scorecard_id", loaded.scorecard.id)
-  const { data: ranges } = await admin.from("result_ranges").select("id, min_percent, max_percent, label").eq("scorecard_id", loaded.scorecard.id)
-  const { data: rules } = await admin.from("scoring_rules").select("rule_type, config").eq("scorecard_id", loaded.scorecard.id)
+  const published = await readPublishedDocument(admin, loaded.scorecard.id)
+  const { data: categories } = published
+    ? { data: published.scoringCategories.map((category) => ({ id: category.id, weight: category.weight })) }
+    : await admin.from("scoring_categories").select("id, weight").eq("scorecard_id", loaded.scorecard.id)
+  const { data: ranges } = published
+    ? { data: published.ranges.map((range) => ({ id: range.id, min_percent: range.minPercent, max_percent: range.maxPercent, label: range.label })) }
+    : await admin.from("result_ranges").select("id, min_percent, max_percent, label").eq("scorecard_id", loaded.scorecard.id)
+  const { data: rules } = published
+    ? { data: published.rules.map((rule) => ({ id: rule.id, rule_type: rule.ruleType, config: rule.config })) }
+    : await admin.from("scoring_rules").select("id, rule_type, config").eq("scorecard_id", loaded.scorecard.id)
   const engineQuestions = questions.map((question) => {
     const settings = parseQuestionSettings(question.row.settings, question.publicQuestion.type)
     return {
@@ -458,28 +548,10 @@ export async function completeVisitorAssessment(slug: string) {
       scaleTo: settings.scaleTo,
       scoreFrom: settings.scoreFrom,
       scoreTo: settings.scoreTo,
+      displayRule: parseDisplayRule(question.row.settings),
+      choiceOptions: question.options.map((option) => ({ id: option.id, label: option.label, value: option.value ?? "" })),
+      position: question.row.position,
     }
-  })
-  const score = calculateAssessment({
-    questions: engineQuestions,
-    answers: engineQuestions.map((question) => {
-      const rows = responses.filter((response) => response.question_id === question.id)
-      return {
-        questionId: question.id,
-        optionIds: rows.flatMap((row) => (row.option_id ? [row.option_id] : [])),
-        scaleValue: (() => {
-          const raw = rows.find((row) => row.value_number !== null && row.value_number !== undefined)?.value_number
-          return raw === undefined || raw === null ? undefined : Number(raw)
-        })(),
-      }
-    }),
-    categories: (categories ?? []).map((category) => ({ id: category.id, weight: Number(category.weight) })),
-    ranges: (ranges ?? []).map((range) => ({
-      id: range.id,
-      minPercent: Number(range.min_percent),
-      maxPercent: Number(range.max_percent),
-      label: range.label,
-    })),
   })
   const rangeList = (ranges ?? []).map((range) => ({
     id: range.id,
@@ -487,11 +559,27 @@ export async function completeVisitorAssessment(slug: string) {
     maxPercent: Number(range.max_percent),
     label: range.label,
   }))
-  const percent = applyScoreRules(
-    score.weightedScore,
-    (rules ?? []).map((rule) => ({ ruleType: rule.rule_type, config: rule.config })),
-  )
-  const matched = matchResultRange(percent, rangeList)
+  const storedRules = (rules ?? []).map((rule) => ({ ruleType: rule.rule_type, config: rule.config, id: rule.id }))
+  const outcome = resolveAssessment({
+    questions: engineQuestions,
+    answers: questions.filter((question) => !hiddenIds.includes(question.row.id)).map((question) => {
+      const rows = responses.filter((response) => response.question_id === question.row.id)
+      const raw = rows.find((row) => row.value_number !== null && row.value_number !== undefined)?.value_number
+      return {
+        questionId: question.row.id,
+        optionIds: rows.flatMap((row) => (row.option_id ? [row.option_id] : [])),
+        scaleValue: raw === undefined || raw === null ? undefined : Number(raw),
+        valueText: rows.find((row) => row.value_text)?.value_text ?? undefined,
+      }
+    }),
+    categories: (categories ?? []).map((category) => ({ id: category.id, weight: Number(category.weight) })),
+    ranges: rangeList,
+    caps: storedRules,
+    rules: eligibilityFromStored(loaded.scorecard.id, storedRules),
+  })
+  const score = outcome
+  const percent = outcome.officialPercent
+  const matched = outcome.finalRange
   const blockers = completionBlockers({
     weights: (categories ?? []).map((category) => Number(category.weight)),
     hasCategories: (categories ?? []).length > 0,
@@ -507,6 +595,8 @@ export async function completeVisitorAssessment(slug: string) {
     p_overall_score: score.rawScore,
     p_overall_percent: percent,
     p_range_id: matched!.id,
+    p_matched_range_id: outcome.matchedRange?.id ?? null,
+    p_triggered_rules: outcome.triggeredRules as unknown as Json,
     p_categories: score.categoryScores.map((category) => ({
       scoring_category_id: category.categoryId,
       score: category.rawScore,
@@ -674,12 +764,18 @@ export async function loadAssessmentScreen(slug: string): Promise<AssessmentScre
     answers[row.question_id] = current
   }
   const publicQuestions = questions.map((question) => question.publicQuestion)
+  const family = toVisibility(questions)
+  const currentAnswers = responsesToVisibility(responses)
+  const openQuestions = publicQuestions.filter((question) => {
+    const item = family.find((entry) => entry.id === question.id)
+    return item ? isQuestionVisible(item, family, currentAnswers) : true
+  })
   const timing = lead?.timing ?? "before_results"
   const hasLead = Boolean(existingLead)
   return {
     questions: publicQuestions,
     answers,
-    index: resumeIndex(publicQuestions, new Set(Object.keys(answers))),
+    index: resumeIndex(openQuestions, new Set(Object.keys(answers))),
     lead,
     needsLeadFirst: timing === "before" && !hasLead,
     needsLeadBeforeResult: (timing === "before_results" || timing === "during") && !hasLead,

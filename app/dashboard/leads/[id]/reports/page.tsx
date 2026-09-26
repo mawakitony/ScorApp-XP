@@ -25,10 +25,17 @@ export default async function LeadReportsPage({ params }: { params: Promise<{ id
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
         <Link href={`/dashboard/leads/${lead.id}`} className="text-sm text-muted-foreground">Lead</Link>
-        <h1 className="font-display text-4xl">Reports</h1>
+        <h1 className="font-display text-4xl">Rapports</h1>
       </div>
-      {error ? <p className="rounded-2xl border bg-card px-5 py-4 text-sm">La migration des rapports n&apos;est pas encore appliquée.</p> : null}
-      <ul className="divide-y rounded-3xl border bg-card">
+      {error ? <p className="rounded-2xl border bg-card px-5 py-4 text-sm">Les rapports ne sont pas encore disponibles.</p> : null}
+      {!error && (reports ?? []).length === 0 ? (
+        <div className="rounded-2xl border border-dashed p-8 text-sm">
+          <p>Aucun rapport pour ce lead.</p>
+          <p className="mt-2 text-muted-foreground">Un rapport apparaît après une évaluation terminée. Vous pouvez aussi le régénérer depuis la fiche du lead.</p>
+          <Link className="mt-3 inline-block underline" href={`/dashboard/leads/${lead.id}`}>Retour au lead</Link>
+        </div>
+      ) : null}
+      {(reports ?? []).length > 0 ? <ul className="divide-y rounded-3xl border bg-card">
         {(reports ?? []).map((report) => (
           <li key={report.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm">
             <div>
@@ -41,7 +48,7 @@ export default async function LeadReportsPage({ params }: { params: Promise<{ id
             </div>
           </li>
         ))}
-      </ul>
+      </ul> : null}
       {(reports ?? []).filter((report) => report.report_type === "participant").slice(0, 1).map((report) => {
         const presented = presentReport(report.snapshot, report.ai_output, true)
         return presented ? <ReportView key={report.id} report={presented} /> : null

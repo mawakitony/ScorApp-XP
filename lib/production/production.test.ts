@@ -4,7 +4,7 @@ import { canonicalUrl, isPlatformHost, normalizeDomain, publicPathForHost, resol
 import { isBuilderStep } from "../constants.ts"
 import { safeProviderFailure } from "../email/provider-error.ts"
 import { invitationIdempotencyKey, nextEmailAttempt, renderEmail } from "../email/templates.ts"
-import { e2eDatabaseAllowed, missingProductionEnv } from "../env.ts"
+import { e2eCurrentDatabaseAllowed, e2eDatabaseAllowed, missingProductionEnv } from "../env.ts"
 import { redact } from "../observability/logger.ts"
 import { publicError } from "../observability/errors.ts"
 import { contentSecurityPolicy, safeReportPath, validateImageFile } from "../security/limits.ts"
@@ -78,6 +78,9 @@ test("production env and CSP stay strict", () => {
   assert.equal(e2eDatabaseAllowed({ NODE_ENV: "production", E2E_SUPABASE_URL: "https://e2e.supabase.co" }), false)
   assert.equal(e2eDatabaseAllowed({ NODE_ENV: "test", E2E_SUPABASE_URL: "https://e2e.supabase.co", NEXT_PUBLIC_SUPABASE_URL: "https://prod.supabase.co" }), true)
   assert.equal(e2eDatabaseAllowed({ NODE_ENV: "test", E2E_SUPABASE_URL: "https://same.supabase.co", NEXT_PUBLIC_SUPABASE_URL: "https://same.supabase.co" }), false)
+  assert.equal(e2eCurrentDatabaseAllowed({ NODE_ENV: "test", E2E_ALLOW_CURRENT: "1", E2E_PREFIX: "E2E-WOLOYEM-1", NEXT_PUBLIC_SUPABASE_URL: "https://same.supabase.co", NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon", SUPABASE_SERVICE_ROLE_KEY: "service" }), true)
+  assert.equal(e2eCurrentDatabaseAllowed({ NODE_ENV: "test", E2E_PREFIX: "E2E-WOLOYEM-1", NEXT_PUBLIC_SUPABASE_URL: "https://same.supabase.co", NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon", SUPABASE_SERVICE_ROLE_KEY: "service" }), false)
+  assert.equal(e2eCurrentDatabaseAllowed({ NODE_ENV: "production", E2E_ALLOW_CURRENT: "1", E2E_PREFIX: "E2E-WOLOYEM-1", NEXT_PUBLIC_SUPABASE_URL: "https://same.supabase.co", NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon", SUPABASE_SERVICE_ROLE_KEY: "service" }), false)
   assert.equal(contentSecurityPolicy().includes("unsafe-eval"), false)
   assert.match(contentSecurityPolicy(), /frame-ancestors 'none'/)
   assert.equal(publicError("QUOTA_EXCEEDED").includes("Postgres"), false)

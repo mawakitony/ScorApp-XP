@@ -10,13 +10,17 @@ import {
   reorderQuestions,
 } from "@/actions/builder"
 import { ConfirmDelete } from "@/components/scorecard-builder/confirm-delete"
+import { exportScorecardWorkbook } from "@/actions/import-questions"
+import { ImportQuestionsButton } from "@/components/scorecard-builder/questions/import-questions-dialog"
+import type { ImportCatalog } from "@/lib/importers/diff"
+import type { EligibilityRule } from "@/lib/scoring/eligibility"
 import { QuestionEditor } from "@/components/scorecard-builder/questions/question-editor"
 import { SortableList } from "@/components/scorecard-builder/sortable-list"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { QUESTION_TYPE_LABELS } from "@/lib/constants"
 import { questionTypes, type QuestionType } from "@/lib/validators/builder"
-import type { BuilderOption, BuilderQuestion, BuilderQuestionCategory, BuilderScoringCategory } from "@/types/builder"
+import type { BuilderOption, BuilderQuestion, BuilderQuestionCategory, BuilderRange, BuilderScoringCategory } from "@/types/builder"
 import { defaultSettings } from "@/types/builder"
 
 export function QuestionsStep({
@@ -24,13 +28,29 @@ export function QuestionsStep({
   questions,
   categories,
   scoringCategories,
+  ranges,
+  rules,
+  mode,
+  revision = 0,
   onChange,
+  onImported,
 }: {
   scorecardId: string
   questions: BuilderQuestion[]
   categories: BuilderQuestionCategory[]
   scoringCategories: BuilderScoringCategory[]
+  ranges: BuilderRange[]
+  rules: EligibilityRule[]
+  mode: "simple" | "advanced"
+  revision?: number
   onChange: (questions: BuilderQuestion[]) => void
+  onImported: (value: {
+    questions: BuilderQuestion[]
+    questionCategories: BuilderQuestionCategory[]
+    scoringCategories: BuilderScoringCategory[]
+    ranges: BuilderRange[]
+    rules?: EligibilityRule[]
+  }) => void
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(questions[0]?.id ?? null)
   const [nextType, setNextType] = useState<QuestionType>("single_choice")
@@ -56,6 +76,7 @@ export function QuestionsStep({
       isScored: !["short_text", "long_text", "email", "phone"].includes(nextType),
       position: questions.length,
       settings: defaultSettings(nextType),
+      displayRule: null,
       options: result.data.options.map((option) => toOption(result.data!.id, option)),
     }
     onChange([...questions, question])
@@ -85,7 +106,13 @@ export function QuestionsStep({
       toast.error(result.error)
       return
     }
-    const next = questions.filter((question) => question.id !== questionId)
+    const next = questions
+      .filter((question) => question.id !== questionId)
+      .map((question) => {
+        if (!question.displayRule) return question
+        const conditions = question.displayRule.conditions.filter((condition) => condition.questionId !== questionId)
+        return { ...question, displayRule: conditions.length > 0 ? { ...question.displayRule, conditions } : null }
+      })
     onChange(next)
     if (selectedId === questionId) setSelectedId(next[0]?.id ?? null)
   }
@@ -123,6 +150,17 @@ export function QuestionsStep({
           <Button type="button" className="h-10" disabled={pending} onClick={() => void addQuestion()}>
             Ajouter une question
           </Button>
+          <Button type="button" variant="outline" className="h-10" disabled={pending} onClick={() => void downloadWorkbook(scorecardId, setPending)}>
+            Exporter vers Excel
+          </Button>
+          <ImportQuestionsButton
+            scorecardId={scorecardId}
+            catalog={catalogOf(questions, categories, scoringCategories, ranges, rules)}
+            onImported={(value) => {
+              onImported(value)
+              setSelectedId(value.questions[0]?.id ?? null)
+            }}
+          />
         </div>
       </div>
       {questions.length === 0 ? (
@@ -154,7 +192,7 @@ export function QuestionsStep({
                     </Button>
                     <ConfirmDelete
                       title="Supprimer cette question ?"
-                      description="Les options associées seront également supprimées."
+                      description="Elle disparaît du questionnaire. Les réponses déjà collectées restent lisibles."
                       onConfirm={() => void removeQuestion(question.id)}
                     />
                   </div>
@@ -169,6 +207,9 @@ export function QuestionsStep({
               question={selected}
               categories={categories}
               scoringCategories={scoringCategories}
+              questions={questions}
+              mode={mode}
+              revision={revision}
               onChange={(next) => onChange(questions.map((question) => (question.id === next.id ? next : question)))}
             />
           ) : (
@@ -178,6 +219,65 @@ export function QuestionsStep({
       )}
     </div>
   )
+}
+
+function optionLabel(questions: BuilderQuestion[], questionId: string, value: string) {
+  const source = questions.find((question) => question.id === questionId)
+  const option = source?.options.find((item) => item.id === value || item.value.toLowerCase() === value.toLowerCase() || item.label.toLowerCase() === value.toLowerCase())
+  return option?.label ?? value
+}
+
+function catalogOf(
+  questions: BuilderQuestion[],
+  categories: BuilderQuestionCategory[],
+  scoringCategories: BuilderScoringCategory[],
+  ranges: BuilderRange[],
+  rules: EligibilityRule[],
+): ImportCatalog {
+  const categoryName = new Map(categories.map((category) => [category.id, category.name]))
+  const scoringName = new Map(scoringCategories.map((category) => [category.id, category.name]))
+  return {
+    questions: questions.map((question, index) => ({
+      id: question.id,
+      order: question.position + 1 || index + 1,
+      title: question.title,
+      description: question.description,
+      type: question.type,
+      required: question.isRequired,
+      scored: question.isScored,
+      category: question.questionCategoryId ? categoryName.get(question.questionCategoryId) ?? "" : "",
+      scoringCategory: question.scoringCategoryId ? scoringName.get(question.scoringCategoryId) ?? "" : "",
+      options: question.options.map((option) => ({ label: option.label, score: option.score })),
+      conditions: (question.displayRule?.conditions ?? []).map((condition) => `${question.displayRule?.mode}|${condition.questionId}|${condition.operator}|${optionLabel(questions, condition.questionId, condition.value)}`).join(";"),
+    })),
+    categories: categories.map((category) => ({ name: category.name, weight: category.weight })),
+    scoringCategories: scoringCategories.map((category) => ({ name: category.name, weight: category.weight, maxScore: category.maxScore })),
+    ranges: ranges.map((range) => ({ id: range.id, label: range.label, min: range.minPercent, max: range.maxPercent, title: range.title })),
+    rules: rules.map((rule) => ({
+      id: rule.id,
+      action: rule.action,
+      target: rule.resultRangeId,
+      conditions: rule.conditions.map((condition) => `${condition.questionId}|${condition.operator}|${optionLabel(questions, condition.questionId, condition.value)}`).join(";"),
+    })),
+  }
+}
+
+async function downloadWorkbook(scorecardId: string, setPending: (value: boolean) => void) {
+  setPending(true)
+  const result = await exportScorecardWorkbook(scorecardId)
+  setPending(false)
+  if ("error" in result && result.error) {
+    toast.error(result.error)
+    return
+  }
+  if (!("base64" in result) || !result.base64 || !result.filename) return
+  const bytes = Uint8Array.from(atob(result.base64), (char) => char.charCodeAt(0))
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
+  const link = document.createElement("a")
+  link.href = url
+  link.download = result.filename
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function toOption(

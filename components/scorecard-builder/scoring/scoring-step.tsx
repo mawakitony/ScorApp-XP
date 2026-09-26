@@ -3,20 +3,26 @@
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
+  applyScoringProposal,
   createScoringCategory,
   deleteScoringCategory,
   reorderScoringCategories,
   updateScoringCategory,
 } from "@/actions/builder"
+import { RulesEditor } from "@/components/scorecard-builder/scoring/rules-editor"
 import { ConfirmDelete } from "@/components/scorecard-builder/confirm-delete"
 import { AreaField, Field, TextField } from "@/components/scorecard-builder/editor-fields"
 import { SortableList } from "@/components/scorecard-builder/sortable-list"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAutosave } from "@/hooks/use-autosave"
-import { calculateAssessment, sumWeights, weightsMatchTarget } from "@/lib/scoring/engine"
+import { proposeScoring, type ScoringProposal } from "@/lib/scoring/assistant"
+import { toEngineQuestion } from "@/lib/scoring/from-builder"
+import { sumWeights, weightsMatchTarget } from "@/lib/scoring/engine"
+import { resolveAssessment } from "@/lib/scoring/outcome"
 import { scoringCategorySchema } from "@/lib/validators/builder"
-import type { BuilderQuestion, BuilderRange, BuilderScoringCategory } from "@/types/builder"
+import type { EligibilityRule } from "@/lib/scoring/eligibility"
+import type { BuilderQuestion, BuilderQuestionCategory, BuilderRange, BuilderScoringCategory } from "@/types/builder"
 import { isChoiceType } from "@/types/builder"
 
 type SimulatedAnswer = { optionIds: string[]; scaleValue?: number }
@@ -25,33 +31,36 @@ export function ScoringStep({
   scorecardId,
   categories,
   questions,
+  questionCategories,
   ranges,
+  rules,
+  caps,
   onChange,
+  onQuestions,
+  onRules,
+  onCaps,
 }: {
   scorecardId: string
   categories: BuilderScoringCategory[]
   questions: BuilderQuestion[]
+  questionCategories: BuilderQuestionCategory[]
   ranges: BuilderRange[]
+  rules: EligibilityRule[]
+  caps: { id: string; maxPercent: number }[]
   onChange: (categories: BuilderScoringCategory[]) => void
+  onQuestions: (questions: BuilderQuestion[]) => void
+  onRules: (rules: EligibilityRule[]) => void
+  onCaps: (caps: { id: string; maxPercent: number }[]) => void
 }) {
   const [pending, setPending] = useState(false)
   const [simulated, setSimulated] = useState<Record<string, SimulatedAnswer>>({})
+  const [proposal, setProposal] = useState<ScoringProposal | null>(null)
   const weights = categories.map((category) => category.weight)
   const balanced = weightsMatchTarget(weights)
 
   const simulation = useMemo(() => {
-    return calculateAssessment({
-      questions: questions.map((question) => ({
-        id: question.id,
-        isScored: question.isScored,
-        scoringCategoryId: question.scoringCategoryId,
-        type: question.type,
-        options: question.options.map((option) => ({ id: option.id, score: option.score })),
-        scaleFrom: question.settings.scaleFrom,
-        scaleTo: question.settings.scaleTo,
-        scoreFrom: question.settings.scoreFrom,
-        scoreTo: question.settings.scoreTo,
-      })),
+    return resolveAssessment({
+      questions: questions.map(toEngineQuestion),
       answers: questions.map((question) => ({
         questionId: question.id,
         optionIds: simulated[question.id]?.optionIds ?? [],
@@ -64,8 +73,10 @@ export function ScoringStep({
         maxPercent: range.maxPercent,
         label: range.label,
       })),
+      caps: caps.map((cap) => ({ ruleType: "cap", config: { maxPercent: cap.maxPercent } })),
+      rules,
     })
-  }, [categories, questions, ranges, simulated])
+  }, [caps, categories, questions, ranges, rules, simulated])
 
   async function addCategory() {
     setPending(true)
@@ -104,20 +115,30 @@ export function ScoringStep({
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-display text-3xl">Scoring</h2>
+          <h2 className="font-display text-3xl">Score</h2>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            Poids des catégories de score. Le total simple et le pourcentage pondéré sont calculés par le moteur.
+            Chaque catégorie a un poids. Le total doit faire 100 %. Le résultat correspond ensuite à une plage.
           </p>
         </div>
         <Button type="button" className="h-10" disabled={pending} onClick={() => void addCategory()}>
           Ajouter une catégorie
         </Button>
       </div>
-      {categories.length > 0 && !balanced ? (
-        <p className="rounded-xl bg-[#f8ecd4] px-4 py-3 text-sm text-[#8a5a12]" role="alert">
-          La somme des poids est {sumWeights(weights)} %. Elle doit être égale à 100 %.
-        </p>
-      ) : null}
+      <p className={`rounded-xl px-4 py-3 text-sm ${balanced || categories.length === 0 ? "bg-muted/50" : "bg-[#f8ecd4] text-[#8a5a12]"}`}>
+        {categories.length === 0 ? "Aucun poids à totaliser." : `${sumWeights(weights)} / 100 %${balanced ? " ✓" : ""}`}
+      </p>
+      <ScoringAssistant
+        proposal={proposal}
+        pending={pending}
+        onOpen={() => setProposal(proposeScoring({
+          scoringCategories: categories,
+          questionCategories,
+          questions,
+        }))}
+        onChange={setProposal}
+        onClose={() => setProposal(null)}
+        onConfirm={() => void confirmProposal()}
+      />
       {categories.length === 0 ? (
         <p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">
           Sans catégorie de scoring, le résultat utilise le pourcentage simple des points.
@@ -155,9 +176,9 @@ export function ScoringStep({
           ))}
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <Metric label="Score brut" value={`${simulation.rawScore} / ${simulation.maxScore}`} />
-          <Metric label="Overall" value={`${simulation.weightedScore} %`} />
-          <Metric label="Result" value={simulation.resultRange?.label ?? "—"} />
+          <Metric label="Score brut" value={`${simulation.rawScore}`} />
+          <Metric label="Score calculé" value={`${simulation.officialPercent} %`} />
+          <Metric label="Résultat final" value={simulation.finalRange?.label ?? "—"} />
         </div>
         {simulation.categoryScores.length > 0 ? (
           <ul className="mt-4 space-y-2">
@@ -173,7 +194,109 @@ export function ScoringStep({
           </ul>
         ) : null}
       </section>
+      <RulesEditor
+        scorecardId={scorecardId}
+        questions={questions}
+        ranges={ranges}
+        rules={rules}
+        caps={caps}
+        onRules={onRules}
+        onCaps={onCaps}
+      />
     </div>
+  )
+
+  async function confirmProposal() {
+    if (!proposal || Math.abs(sumWeights(proposal.items.map((item) => item.weight)) - 100) > 0.05) return
+    setPending(true)
+    const result = await applyScoringProposal(scorecardId, {
+      categories: proposal.items.map((item) => ({ id: item.existingId, name: item.name, weight: item.weight })),
+      links: proposal.links,
+    })
+    setPending(false)
+    if (result.error || !result.data) {
+      toast.error(result.error ?? "La configuration n'a pas pu être appliquée.")
+      return
+    }
+    const nextCategories = result.data.categories.map((category, position) => {
+      const current = categories.find((item) => item.id === category.id)
+      return {
+        id: category.id,
+        name: category.name,
+        description: current?.description ?? "",
+        weight: category.weight,
+        maxScore: current?.maxScore ?? 100,
+        highMessage: current?.highMessage ?? "",
+        mediumMessage: current?.mediumMessage ?? "",
+        lowMessage: current?.lowMessage ?? "",
+        position,
+      }
+    })
+    const untouched = categories.filter((category) => !nextCategories.some((item) => item.id === category.id))
+    onChange([...untouched, ...nextCategories])
+    onQuestions(questions.map((question) => {
+      const link = result.data?.links.find((item) => item.questionId === question.id)
+      return link && !question.scoringCategoryId ? { ...question, scoringCategoryId: link.scoringCategoryId } : question
+    }))
+    setProposal(null)
+    toast.success("Scoring configuré.")
+  }
+}
+
+function ScoringAssistant({
+  proposal,
+  pending,
+  onOpen,
+  onChange,
+  onClose,
+  onConfirm,
+}: {
+  proposal: ScoringProposal | null
+  pending: boolean
+  onOpen: () => void
+  onChange: (proposal: ScoringProposal) => void
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const total = proposal ? sumWeights(proposal.items.map((item) => item.weight)) : 0
+  const balanced = proposal ? Math.abs(total - 100) < 0.05 : false
+  return (
+    <section className="rounded-2xl border p-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="font-display text-2xl">Configurer automatiquement le scoring</h3>
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">La proposition s&apos;affiche avant toute modification. Une catégorie déjà associée à une question n&apos;est pas remplacée.</p>
+        </div>
+        <Button type="button" variant="outline" className="h-10" onClick={onOpen}>Voir la proposition</Button>
+      </div>
+      {proposal ? (
+        <div className="mt-4 space-y-3">
+          <p className="text-sm font-medium">Configuration proposée</p>
+          {proposal.items.length === 0 ? <p className="text-sm text-muted-foreground">Ajoutez une question notée ou une catégorie avant de proposer des poids.</p> : null}
+          {proposal.items.map((item, index) => (
+            <div key={`${item.name}-${index}`} className="grid gap-2 sm:grid-cols-[1fr_120px] sm:items-center">
+              <p className="text-sm">{item.name}</p>
+              <Input
+                className="h-10"
+                type="number"
+                aria-label={`Poids de ${item.name}`}
+                value={item.weight}
+                onChange={(event) => onChange({
+                  ...proposal,
+                  items: proposal.items.map((current, currentIndex) => currentIndex === index ? { ...current, weight: Number(event.target.value) } : current),
+                })}
+              />
+            </div>
+          ))}
+          <p className="text-sm">{total} / 100 %{balanced ? " ✓" : ""}</p>
+          {proposal.links.length > 0 ? <p className="text-sm text-muted-foreground">{proposal.links.length} question(s) sans catégorie de score seront associées. Les associations existantes restent intactes.</p> : null}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
+            <Button type="button" disabled={!balanced || pending || proposal.items.length === 0} onClick={onConfirm}>Appliquer</Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
   )
 }
 

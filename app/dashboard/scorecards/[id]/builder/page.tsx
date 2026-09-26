@@ -4,10 +4,13 @@ import { isBuilderStep } from "@/lib/constants"
 import { can } from "@/lib/auth/permissions"
 import { getBuilderBundle } from "@/lib/data/builder"
 import { ensureMembership } from "@/lib/data/membership"
+import { getScorecard } from "@/lib/data/scorecards"
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  return { title: `Builder ${id.slice(0, 8)}` }
+  const membership = await ensureMembership()
+  const scorecard = membership ? await getScorecard(membership.organization.id, id) : null
+  return { title: scorecard?.name ? `${scorecard.name} · Builder` : "Builder" }
 }
 
 export default async function BuilderPage({

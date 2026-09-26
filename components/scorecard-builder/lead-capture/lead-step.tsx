@@ -52,7 +52,7 @@ export function LeadStep({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-display text-3xl">Lead Capture</h2>
+        <h2 className="font-display text-3xl">Contact</h2>
         <p className="mt-2 text-sm text-muted-foreground">Le formulaire est enregistré, sans collecte visiteur pour l&apos;instant.</p>
       </div>
       <div className="space-y-2">

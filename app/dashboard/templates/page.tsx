@@ -1,10 +1,11 @@
+import Link from "next/link"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { UseTemplateButton } from "@/components/templates/use-template-button"
 import { can } from "@/lib/auth/permissions"
 import { ensureMembership } from "@/lib/data/membership"
 import { listTemplates } from "@/lib/data/scorecards"
 
-export const metadata = { title: "Templates" }
+export const metadata = { title: "Modèles" }
 
 export default async function TemplatesPage() {
   const membership = await ensureMembership()
@@ -15,7 +16,7 @@ export default async function TemplatesPage() {
     <div className="space-y-6">
       <div>
         <p className="text-sm text-muted-foreground">Modèles WOLOYEM</p>
-        <h1 className="font-display text-4xl">Templates</h1>
+        <h1 className="font-display text-4xl">Modèles</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Chaque modèle crée une scorecard brouillon. Les questions et le scoring seront ajoutés dans le builder.
         </p>
@@ -23,7 +24,8 @@ export default async function TemplatesPage() {
       {templates.length === 0 ? (
         <EmptyState
           title="Aucun modèle"
-          description="Appliquez la migration Supabase pour charger les modèles PMP®, CAPM®, ITIL®, PRINCE2® et Business Case."
+          description="Les modèles WOLOYEM ne sont pas encore disponibles. Créez une scorecard vide en attendant."
+          action={<Link className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm text-primary-foreground" href="/dashboard/scorecards">Voir les scorecards</Link>}
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">

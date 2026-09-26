@@ -56,7 +56,7 @@ export function LandingStep({
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-6">
         <div>
-          <h2 className="font-display text-3xl">Landing Page</h2>
+          <h2 className="font-display text-3xl">Page d&apos;accueil</h2>
           <p className="mt-2 text-sm text-muted-foreground">Page d&apos;accueil structurée, sans constructeur libre.</p>
         </div>
         <TextField id="landing-eyebrow" label="Surtitre" value={value.eyebrow} onChange={(eyebrow) => update({ ...value, eyebrow })} />

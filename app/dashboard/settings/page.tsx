@@ -3,7 +3,7 @@ import { InviteForm, ProfileForm, RemoveMemberButton } from "@/components/settin
 import { canEdit, requireUser } from "@/lib/auth/session"
 import { ensureMembership, listMembers } from "@/lib/data/membership"
 
-export const metadata = { title: "Settings" }
+export const metadata = { title: "Réglages" }
 
 const roleLabels: Record<string, string> = {
   owner: "Propriétaire",
@@ -25,7 +25,7 @@ export default async function SettingsPage() {
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
         <p className="text-sm text-muted-foreground">{membership.organization.name}</p>
-        <h1 className="font-display text-4xl">Settings</h1>
+        <h1 className="font-display text-4xl">Réglages</h1>
         <p className="mt-3 flex flex-wrap gap-4 text-sm">
           <Link href="/dashboard/settings/profile" className="underline">Profil</Link>
           <Link href="/dashboard/settings/organization" className="underline">Organisation</Link>
@@ -54,7 +54,7 @@ export default async function SettingsPage() {
             <dd>{membership.organization.name}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Slug</dt>
+            <dt className="text-muted-foreground">Adresse interne</dt>
             <dd>{membership.organization.slug}</dd>
           </div>
           <div>

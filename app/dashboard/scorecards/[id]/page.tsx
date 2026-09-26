@@ -13,7 +13,9 @@ import { toScorecardFormValues } from "@/lib/scorecard/values"
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  return { title: `Scorecard ${id.slice(0, 8)}` }
+  const membership = await ensureMembership()
+  const scorecard = membership ? await getScorecard(membership.organization.id, id) : null
+  return { title: scorecard?.name ?? "Scorecard" }
 }
 
 export default async function ScorecardDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -28,7 +30,7 @@ export default async function ScorecardDetailPage({ params }: { params: Promise<
     <div className="space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">Fiche scorecard</p>
+          <Link href="/dashboard/scorecards" className="text-sm text-muted-foreground underline-offset-4 hover:underline">Retour aux scorecards</Link>
           <h1 className="font-display text-4xl">{scorecard.name}</h1>
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             <StatusBadge status={scorecard.status} />

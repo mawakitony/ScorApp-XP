@@ -29,6 +29,14 @@ export function e2eDatabaseAllowed(env: Record<string, string | undefined> = pro
   return target !== env.NEXT_PUBLIC_SUPABASE_URL?.trim()
 }
 
+export function e2eCurrentDatabaseAllowed(env: Record<string, string | undefined> = process.env) {
+  if (env.NODE_ENV === "production") return false
+  if (env.STRIPE_SECRET_KEY?.startsWith("sk_live_")) return false
+  if (env.E2E_ALLOW_CURRENT !== "1") return false
+  if (!/^E2E-WOLOYEM-\d+$/.test(env.E2E_PREFIX?.trim() ?? "")) return false
+  return Boolean(env.NEXT_PUBLIC_SUPABASE_URL && env.NEXT_PUBLIC_SUPABASE_ANON_KEY && env.SUPABASE_SERVICE_ROLE_KEY)
+}
+
 export function getAppUrl() {
   return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "http://localhost:3000"
 }

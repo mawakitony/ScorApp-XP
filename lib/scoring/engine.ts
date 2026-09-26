@@ -40,6 +40,12 @@ export type EngineOption = {
   score: number
 }
 
+export type EngineChoice = {
+  id: string
+  label: string
+  value: string
+}
+
 export type EngineQuestion = {
   id: string
   isScored: boolean
@@ -50,6 +56,9 @@ export type EngineQuestion = {
   scaleTo?: number
   scoreFrom?: number
   scoreTo?: number
+  displayRule?: { mode: "show_if" | "hide_if"; conditions: { questionId: string; operator: "eq" | "neq" | "lt" | "lte" | "gt" | "gte"; value: string }[] } | null
+  choiceOptions?: EngineChoice[]
+  position?: number
 }
 
 export type EngineAnswer = {

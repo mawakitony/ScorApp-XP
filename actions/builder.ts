@@ -3,10 +3,15 @@
 import { revalidatePath } from "next/cache"
 import { requireScorecardEditor } from "@/lib/auth/editor"
 import { loadPublishReport } from "@/actions/publish"
+import { captureUndo } from "@/actions/release"
 import { emptyToNull } from "@/lib/format"
-import { rangeIssues } from "@/lib/scoring/engine"
+import { displayRuleIssues, parseDisplayRule, type VisibilityQuestion } from "@/lib/assessment/visibility"
+import { operatorsForQuestion, type EligibilityRule } from "@/lib/scoring/eligibility"
+import { eligibilityFromStored } from "@/lib/scoring/parse-rules"
+import { rangeIssues, sumWeights } from "@/lib/scoring/engine"
 import { serializeLeadFields } from "@/lib/scorecard/content"
 import {
+  eligibilityRuleSchema,
   landingSchema,
   leadFormSchema,
   optionSchema,
@@ -101,6 +106,7 @@ export async function saveLanding(scorecardId: string, values: LandingInput): Pr
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message)
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
 
   const payload = {
     eyebrow: emptyToNull(parsed.data.eyebrow),
@@ -139,10 +145,12 @@ export async function createQuestion(
 ): Promise<MutationResult<{ id: string; options: BuilderOptionRow[] }>> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const { count } = await context.supabase
     .from("questions")
     .select("id", { count: "exact", head: true })
     .eq("scorecard_id", context.scorecardId)
+    .is("archived_at", null)
 
   const { data, error } = await context.supabase
     .from("questions")
@@ -175,8 +183,19 @@ export async function updateQuestion(
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message)
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const owned = await ownsQuestion(context.supabase, context.scorecardId, questionId)
   if (!owned) return { error: "Question introuvable." }
+  const family = await loadVisibilityFamily(context.supabase, context.scorecardId)
+  if (!family) return { error: "Les questions n'ont pas pu être vérifiées." }
+  const proposed = family.map((question) => question.id === questionId
+    ? { ...question, type: parsed.data.type, displayRule: parsed.data.displayRule ?? null }
+    : question)
+  const issue = displayRuleIssues(proposed)
+  if (issue) return { error: issue }
+  const current = family.find((question) => question.id === questionId)
+  const displayRule = parsed.data.displayRule === undefined ? current?.displayRule ?? null : parsed.data.displayRule
+  const settings = displayRule ? { ...parsed.data.settings, displayRule } : parsed.data.settings
 
   const { error } = await context.supabase
     .from("questions")
@@ -188,12 +207,12 @@ export async function updateQuestion(
       scoring_category_id: parsed.data.scoringCategoryId,
       is_required: parsed.data.isRequired,
       is_scored: parsed.data.isScored,
-      settings: parsed.data.settings,
+      settings,
     })
     .eq("id", questionId)
     .eq("scorecard_id", context.scorecardId)
 
-  if (error) return { error: "La question n'a pas pu être enregistrée." }
+  if (error) return { error: "Impossible d'enregistrer cette question. Réessayez." }
   const options = await seedOptions(context.supabase, questionId, parsed.data.type)
   refresh(context.scorecardId)
   return { data: { options } }
@@ -202,7 +221,23 @@ export async function updateQuestion(
 export async function deleteQuestion(scorecardId: string, questionId: string): Promise<MutationResult> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
-  const { error } = await context.supabase.from("questions").delete().eq("id", questionId).eq("scorecard_id", context.scorecardId)
+  await captureUndo(scorecardId)
+  const family = await loadVisibilityFamily(context.supabase, context.scorecardId)
+  if (family) {
+    for (const question of family) {
+      if (!question.displayRule || question.id === questionId) continue
+      const conditions = question.displayRule.conditions.filter((condition) => condition.questionId !== questionId)
+      if (conditions.length === question.displayRule.conditions.length) continue
+      const { data: row } = await context.supabase.from("questions").select("settings").eq("id", question.id).eq("scorecard_id", context.scorecardId).maybeSingle()
+      const settings = row?.settings && typeof row.settings === "object" && !Array.isArray(row.settings) ? { ...row.settings } : {}
+      if (conditions.length === 0) delete settings.displayRule
+      else settings.displayRule = { mode: question.displayRule.mode, conditions }
+      await context.supabase.from("questions").update({ settings }).eq("id", question.id).eq("scorecard_id", context.scorecardId)
+    }
+  }
+  const archivedAt = new Date().toISOString()
+  await context.supabase.from("question_options").update({ archived_at: archivedAt }).eq("question_id", questionId).is("archived_at", null)
+  const { error } = await context.supabase.from("questions").update({ archived_at: archivedAt }).eq("id", questionId).eq("scorecard_id", context.scorecardId)
   if (error) return { error: "La suppression a échoué." }
   refresh(context.scorecardId)
   return {}
@@ -214,7 +249,8 @@ export async function duplicateQuestion(
 ): Promise<MutationResult<{ id: string; options: BuilderOptionRow[] }>> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
-  const { data: source } = await context.supabase.from("questions").select("*").eq("id", questionId).eq("scorecard_id", context.scorecardId).maybeSingle()
+  await captureUndo(scorecardId)
+  const { data: source } = await context.supabase.from("questions").select("*").eq("id", questionId).eq("scorecard_id", context.scorecardId).is("archived_at", null).maybeSingle()
   if (!source) return { error: "Question introuvable." }
   const { data: created, error } = await context.supabase
     .from("questions")
@@ -235,7 +271,7 @@ export async function duplicateQuestion(
     .single()
   if (error || !created) return { error: "La duplication a échoué." }
 
-  const { data: options } = await context.supabase.from("question_options").select("*").eq("question_id", questionId)
+  const { data: options } = await context.supabase.from("question_options").select("*").eq("question_id", questionId).is("archived_at", null)
   let copied: BuilderOptionRow[] = []
   if (options?.length) {
     const inserted = await context.supabase
@@ -259,9 +295,17 @@ export async function duplicateQuestion(
 export async function reorderQuestions(scorecardId: string, ids: string[]): Promise<MutationResult> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
-  const { data } = await context.supabase.from("questions").select("id").eq("scorecard_id", context.scorecardId)
-  const known = new Set((data ?? []).map((row) => row.id))
+  const family = await loadVisibilityFamily(context.supabase, context.scorecardId)
+  if (!family) return { error: "Ordre invalide." }
+  const known = new Set(family.map((question) => question.id))
   if (ids.length !== known.size || ids.some((id) => !known.has(id))) return { error: "Ordre invalide." }
+  const ordered = ids.flatMap((id, position) => {
+    const question = family.find((item) => item.id === id)
+    return question ? [{ ...question, position }] : []
+  })
+  const issue = displayRuleIssues(ordered)
+  if (issue) return { error: issue }
+  await captureUndo(scorecardId)
   const writes = await Promise.all(
     ids.map((id, position) =>
       context.supabase.from("questions").update({ position }).eq("id", id).eq("scorecard_id", context.scorecardId),
@@ -276,7 +320,8 @@ export async function createQuestionOption(scorecardId: string, questionId: stri
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
   if (!(await ownsQuestion(context.supabase, context.scorecardId, questionId))) return { error: "Question introuvable." }
-  const { count } = await context.supabase.from("question_options").select("id", { count: "exact", head: true }).eq("question_id", questionId)
+  await captureUndo(scorecardId)
+  const { count } = await context.supabase.from("question_options").select("id", { count: "exact", head: true }).eq("question_id", questionId).is("archived_at", null)
   const position = count ?? 0
   const { data, error } = await context.supabase
     .from("question_options")
@@ -301,6 +346,7 @@ export async function updateQuestionOption(scorecardId: string, optionId: string
   if ("error" in context) return context
   const questionId = await optionQuestionId(context.supabase, context.scorecardId, optionId)
   if (!questionId) return { error: "Option introuvable." }
+  await captureUndo(scorecardId)
   const { error } = await context.supabase
     .from("question_options")
     .update({ label: parsed.data.label, value: parsed.data.value, score: parsed.data.score })
@@ -314,9 +360,10 @@ export async function updateQuestionOption(scorecardId: string, optionId: string
 export async function deleteQuestionOption(scorecardId: string, optionId: string): Promise<MutationResult> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const questionId = await optionQuestionId(context.supabase, context.scorecardId, optionId)
   if (!questionId) return { error: "Option introuvable." }
-  const { error } = await context.supabase.from("question_options").delete().eq("id", optionId).eq("question_id", questionId)
+  const { error } = await context.supabase.from("question_options").update({ archived_at: new Date().toISOString() }).eq("id", optionId).eq("question_id", questionId)
   if (error) return { error: "La suppression a échoué." }
   refresh(context.scorecardId)
   return {}
@@ -326,9 +373,10 @@ export async function reorderQuestionOptions(scorecardId: string, questionId: st
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
   if (!(await ownsQuestion(context.supabase, context.scorecardId, questionId))) return { error: "Question introuvable." }
-  const { data } = await context.supabase.from("question_options").select("id").eq("question_id", questionId)
-  const known = new Set((data ?? []).map((row) => row.id))
+  const { data } = await context.supabase.from("question_options").select("id, archived_at").eq("question_id", questionId)
+  const known = new Set((data ?? []).filter((row) => !row.archived_at).map((row) => row.id))
   if (ids.length !== known.size || ids.some((id) => !known.has(id))) return { error: "Ordre invalide." }
+  await captureUndo(scorecardId)
   const writes = await Promise.all(ids.map((id, position) => context.supabase.from("question_options").update({ position }).eq("id", id).eq("question_id", questionId)))
   if (writes.some((write) => write.error)) return { error: "Le réordonnancement a échoué." }
   refresh(context.scorecardId)
@@ -372,6 +420,7 @@ export async function updateQuestionCategory(scorecardId: string, categoryId: st
 export async function deleteQuestionCategory(scorecardId: string, categoryId: string): Promise<MutationResult> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const { error } = await context.supabase.from("question_categories").delete().eq("id", categoryId).eq("scorecard_id", context.scorecardId)
   if (error) return { error: "La suppression a échoué." }
   refresh(context.scorecardId)
@@ -407,6 +456,7 @@ export async function reorderQuestionCategories(scorecardId: string, ids: string
 export async function createScoringCategory(scorecardId: string): Promise<MutationResult<{ id: string }>> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const { count } = await context.supabase.from("scoring_categories").select("id", { count: "exact", head: true }).eq("scorecard_id", context.scorecardId)
   const { data, error } = await context.supabase
     .from("scoring_categories")
@@ -423,6 +473,7 @@ export async function updateScoringCategory(scorecardId: string, categoryId: str
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message)
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const { error } = await context.supabase
     .from("scoring_categories")
     .update({
@@ -441,6 +492,7 @@ export async function updateScoringCategory(scorecardId: string, categoryId: str
 export async function deleteScoringCategory(scorecardId: string, categoryId: string): Promise<MutationResult> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const { error } = await context.supabase.from("scoring_categories").delete().eq("id", categoryId).eq("scorecard_id", context.scorecardId)
   if (error) return { error: "La suppression a échoué." }
   refresh(context.scorecardId)
@@ -454,6 +506,7 @@ export async function reorderScoringCategories(scorecardId: string, ids: string[
 export async function createResultRange(scorecardId: string): Promise<MutationResult<{ id: string }>> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const { count } = await context.supabase.from("result_ranges").select("id", { count: "exact", head: true }).eq("scorecard_id", context.scorecardId)
   const { data, error } = await context.supabase
     .from("result_ranges")
@@ -487,6 +540,7 @@ export async function updateResultRange(scorecardId: string, rangeId: string, va
     ),
   )
   if (issues.length > 0) return { error: issues[0] }
+  await captureUndo(scorecardId)
 
   const { error } = await context.supabase
     .from("result_ranges")
@@ -522,6 +576,7 @@ export async function updateResultRange(scorecardId: string, rangeId: string, va
 export async function deleteResultRange(scorecardId: string, rangeId: string): Promise<MutationResult> {
   const context = await requireScorecardEditor(scorecardId)
   if ("error" in context) return context
+  await captureUndo(scorecardId)
   const { error } = await context.supabase.from("result_ranges").delete().eq("id", rangeId).eq("scorecard_id", context.scorecardId)
   if (error) return { error: "La suppression a échoué." }
   refresh(context.scorecardId)
@@ -585,6 +640,174 @@ async function seedOptions(
     : [{ question_id: questionId, label: "Option 1", value: "option-1", score: 0, position: 0 }]
   const { data } = await supabase.from("question_options").insert(rows).select("id, label, value, score, position")
   return data ?? []
+}
+
+export async function saveEligibilityRules(
+  scorecardId: string,
+  rules: unknown,
+): Promise<MutationResult<{ rules: EligibilityRule[] }>> {
+  const parsed = eligibilityRuleSchema.array().max(30).safeParse(rules)
+  if (!parsed.success) return invalid(parsed.error.issues[0]?.message)
+  const context = await requireScorecardEditor(scorecardId)
+  if ("error" in context) return context
+  await captureUndo(scorecardId)
+
+  const [questions, ranges] = await Promise.all([
+    context.supabase.from("questions").select("id, type").eq("scorecard_id", context.scorecardId),
+    context.supabase.from("result_ranges").select("id").eq("scorecard_id", context.scorecardId),
+  ])
+  if (questions.error || ranges.error) return { error: "Les règles n'ont pas pu être vérifiées." }
+  const questionById = new Map((questions.data ?? []).map((question) => [question.id, question.type]))
+  const rangeIds = new Set((ranges.data ?? []).map((range) => range.id))
+
+  for (const rule of parsed.data) {
+    if (!rangeIds.has(rule.resultRangeId)) return { error: "Choisissez un résultat de cette scorecard." }
+    for (const condition of rule.conditions) {
+      const type = questionById.get(condition.questionId)
+      if (!type) return { error: "Choisissez une question de cette scorecard." }
+      if (!operatorsForQuestion(type).includes(condition.operator)) return { error: "Cet opérateur ne correspond pas au type de question." }
+    }
+  }
+
+  const removed = await context.supabase.from("scoring_rules").delete().eq("scorecard_id", context.scorecardId).eq("rule_type", "eligibility")
+  if (removed.error) return { error: "Les règles n'ont pas pu être enregistrées. Appliquez la migration des règles obligatoires." }
+  if (parsed.data.length === 0) {
+    refresh(context.scorecardId)
+    return { data: { rules: [] } }
+  }
+
+  const inserted = await context.supabase
+    .from("scoring_rules")
+    .insert(parsed.data.map((rule, position) => ({
+      scorecard_id: context.scorecardId,
+      rule_type: "eligibility",
+      position,
+      config: {
+        conditions: rule.conditions,
+        action: rule.action,
+        resultRangeId: rule.resultRangeId,
+      },
+    })))
+    .select("id, config")
+  if (inserted.error || !inserted.data) return { error: "Les règles n'ont pas pu être enregistrées. Appliquez la migration des règles obligatoires." }
+  refresh(context.scorecardId)
+  return {
+    data: {
+      rules: eligibilityFromStored(
+        context.scorecardId,
+        inserted.data.map((row) => ({ id: row.id, ruleType: "eligibility", config: row.config })),
+      ),
+    },
+  }
+}
+
+export async function saveScoreCap(scorecardId: string, maxPercent: number | null): Promise<MutationResult<{ caps: { id: string; maxPercent: number }[] }>> {
+  if (maxPercent !== null && (!Number.isFinite(maxPercent) || maxPercent < 0 || maxPercent > 100)) {
+    return { error: "Le plafond doit être compris entre 0 et 100." }
+  }
+  const context = await requireScorecardEditor(scorecardId)
+  if ("error" in context) return context
+  await captureUndo(scorecardId)
+  const removed = await context.supabase.from("scoring_rules").delete().eq("scorecard_id", context.scorecardId).eq("rule_type", "cap")
+  if (removed.error) return { error: "Le plafond n'a pas pu être enregistré." }
+  if (maxPercent === null) {
+    refresh(context.scorecardId)
+    return { data: { caps: [] } }
+  }
+  const inserted = await context.supabase
+    .from("scoring_rules")
+    .insert({ scorecard_id: context.scorecardId, rule_type: "cap", config: { maxPercent }, position: 0 })
+    .select("id")
+    .single()
+  if (inserted.error || !inserted.data) return { error: "Le plafond n'a pas pu être enregistré." }
+  refresh(context.scorecardId)
+  return { data: { caps: [{ id: inserted.data.id, maxPercent }] } }
+}
+
+export async function applyScoringProposal(
+  scorecardId: string,
+  proposal: {
+    categories: { id: string | null; name: string; weight: number }[]
+    links: { questionId: string; categoryName: string }[]
+  },
+): Promise<MutationResult<{ categories: { id: string; name: string; weight: number }[]; links: { questionId: string; scoringCategoryId: string }[] }>> {
+  if (proposal.categories.length === 0 || proposal.categories.length > 20) return invalid()
+  if (Math.abs(sumWeights(proposal.categories.map((category) => category.weight)) - 100) > 0.05) {
+    return { error: "Les poids doivent totaliser 100 %." }
+  }
+  const context = await requireScorecardEditor(scorecardId)
+  if ("error" in context) return context
+  await captureUndo(scorecardId)
+
+  const existing = await context.supabase.from("scoring_categories").select("id, name, description, max_score, position").eq("scorecard_id", context.scorecardId)
+  if (existing.error) return { error: "Le scoring n'a pas pu être préparé." }
+  const known = new Map((existing.data ?? []).map((category) => [category.id, category]))
+  const saved: { id: string; name: string; weight: number }[] = []
+
+  for (const [index, category] of proposal.categories.entries()) {
+    if (!category.name.trim() || category.name.trim().length < 2 || category.weight <= 0 || category.weight > 100) return invalid()
+    if (category.id) {
+      const current = known.get(category.id)
+      if (!current) return { error: "Une catégorie de scoring n'appartient pas à cette scorecard." }
+      const { error } = await context.supabase.from("scoring_categories").update({ weight: category.weight }).eq("id", category.id).eq("scorecard_id", context.scorecardId)
+      if (error) return { error: "Les poids n'ont pas pu être enregistrés." }
+      saved.push({ id: category.id, name: current.name, weight: category.weight })
+      continue
+    }
+    const { data, error } = await context.supabase
+      .from("scoring_categories")
+      .insert({
+        scorecard_id: context.scorecardId,
+        name: category.name.trim(),
+        weight: category.weight,
+        max_score: 100,
+        position: (existing.data?.length ?? 0) + index,
+      })
+      .select("id, name")
+      .single()
+    if (error || !data) return { error: "Une catégorie de scoring n'a pas pu être créée." }
+    saved.push({ id: data.id, name: data.name, weight: category.weight })
+  }
+
+  const applied: { questionId: string; scoringCategoryId: string }[] = []
+  for (const link of proposal.links) {
+    const target = saved.find((category) => category.name.trim().toLowerCase() === link.categoryName.trim().toLowerCase())
+    if (!target) continue
+    const question = await context.supabase.from("questions").select("id, scoring_category_id").eq("id", link.questionId).eq("scorecard_id", context.scorecardId).maybeSingle()
+    if (!question.data || question.data.scoring_category_id) continue
+    const { error } = await context.supabase.from("questions").update({ scoring_category_id: target.id }).eq("id", question.data.id).eq("scorecard_id", context.scorecardId).is("scoring_category_id", null)
+    if (error) return { error: "Une question n'a pas pu être associée." }
+    applied.push({ questionId: question.data.id, scoringCategoryId: target.id })
+  }
+
+  refresh(context.scorecardId)
+  return { data: { categories: saved, links: applied } }
+}
+
+async function loadVisibilityFamily(
+  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>,
+  scorecardId: string,
+): Promise<VisibilityQuestion[] | null> {
+  const questions = await supabase.from("questions").select("id, position, type, settings, archived_at").eq("scorecard_id", scorecardId).order("position")
+  if (questions.error) return null
+  const active = (questions.data ?? []).filter((question) => !question.archived_at)
+  const ids = active.map((question) => question.id)
+  const options = ids.length
+    ? await supabase.from("question_options").select("id, question_id, label, value, archived_at").in("question_id", ids)
+    : { data: [], error: null }
+  if (options.error) return null
+  const activeOptions = (options.data ?? []).filter((option) => !option.archived_at)
+  return active.map((question) => ({
+    id: question.id,
+    position: question.position,
+    type: question.type,
+    options: activeOptions.filter((option) => option.question_id === question.id).map((option) => ({
+      id: option.id,
+      label: option.label,
+      value: option.value ?? "",
+    })),
+    displayRule: parseDisplayRule(question.settings),
+  }))
 }
 
 async function ownsQuestion(

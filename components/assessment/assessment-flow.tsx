@@ -2,8 +2,9 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { finishAssessment, noteLeadForm, saveAssessmentAnswer } from "@/actions/assessment"
+import { clearAssessmentAnswer, finishAssessment, noteLeadForm, saveAssessmentAnswer } from "@/actions/assessment"
 import { QuestionCard, answerIsEmpty, emptyAnswer, type LocalAnswer } from "@/components/assessment/question-card"
+import { isQuestionVisible, pruneHiddenAnswers, type VisibilityQuestion } from "@/lib/assessment/visibility"
 import { PublicLeadForm } from "@/components/assessment/public-lead-form"
 import type { PublicQuestion } from "@/lib/assessment/dto"
 import type { BuilderLeadForm } from "@/types/builder"
@@ -35,8 +36,9 @@ export function AssessmentFlow({
   const [phase, setPhase] = useState<"lead" | "questions" | "lead-after">(needsLeadFirst ? "lead" : "questions")
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
-  const question = questions[index]
-  const total = questions.length
+  const visible = visiblePublicQuestions(questions, answers)
+  const question = visible[index]
+  const total = visible.length
   const progress = total === 0 ? 0 : Math.round(((Math.min(index, total - 1) + 1) / total) * 100)
 
   async function persist(current: PublicQuestion, answer: LocalAnswer) {
@@ -61,7 +63,7 @@ export function AssessmentFlow({
     const saved = await persist(question, answer)
     setPending(false)
     if (!saved) return
-    if (index < questions.length - 1) {
+    if (index < visible.length - 1) {
       setIndex((value) => value + 1)
       return
     }
@@ -117,7 +119,22 @@ export function AssessmentFlow({
               answer={answers[question.id] ?? emptyAnswer()}
               primaryColor={primaryColor}
               onChange={(answer) => {
-                setAnswers((current) => ({ ...current, [question.id]: answer }))
+                const next = { ...answers, [question.id]: answer }
+                const pruned = pruneHiddenAnswers(toVisibility(questions), Object.entries(next).map(([questionId, value]) => ({
+                  questionId,
+                  optionIds: value.optionIds,
+                  scaleValue: value.scaleValue,
+                  valueText: value.text,
+                })))
+                const kept: Record<string, LocalAnswer> = {}
+                for (const item of pruned.answers) {
+                  const current = next[item.questionId]
+                  if (current) kept[item.questionId] = current
+                }
+                if (!kept[question.id]) kept[question.id] = answer
+                setAnswers(kept)
+                for (const id of pruned.removedIds) void clearAssessmentAnswer(slug, id)
+                if (index >= visiblePublicQuestions(questions, kept).length) setIndex(Math.max(0, visiblePublicQuestions(questions, kept).length - 1))
                 setError("")
               }}
             />
@@ -151,11 +168,35 @@ export function AssessmentFlow({
               style={{ background: primaryColor }}
               onClick={() => void forward()}
             >
-              {index === questions.length - 1 ? "Terminer" : "Continuer"}
+              {pending ? "Enregistrement…" : index === visible.length - 1 ? "Terminer" : "Continuer"}
             </button>
           </div>
         ) : null}
       </div>
     </div>
   )
+}
+
+function toVisibility(questions: PublicQuestion[]): VisibilityQuestion[] {
+  return questions.map((question, position) => ({
+    id: question.id,
+    position: question.position ?? position,
+    type: question.type,
+    options: question.options,
+    displayRule: question.displayRule,
+  }))
+}
+
+function visiblePublicQuestions(questions: PublicQuestion[], answers: Record<string, LocalAnswer>) {
+  const family = toVisibility(questions)
+  const drafts = Object.entries(answers).map(([questionId, answer]) => ({
+    questionId,
+    optionIds: answer.optionIds,
+    scaleValue: answer.scaleValue,
+    valueText: answer.text,
+  }))
+  return questions.filter((question) => {
+    const item = family.find((entry) => entry.id === question.id)
+    return item ? isQuestionVisible(item, family, drafts) : true
+  })
 }

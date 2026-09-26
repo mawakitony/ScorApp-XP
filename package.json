@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --import ./test/register.mjs --test lib/scoring/engine.test.ts lib/validators/builder.test.ts lib/assessment/flow.test.ts lib/leads/crm.test.ts lib/integrations/integrations.test.ts lib/reports/reports.test.ts lib/billing/billing.test.ts lib/platform/platform.test.ts lib/production/production.test.ts",
+    "test": "node --experimental-strip-types --import ./test/register.mjs --test lib/scoring/engine.test.ts lib/validators/builder.test.ts lib/assessment/flow.test.ts lib/leads/crm.test.ts lib/integrations/integrations.test.ts lib/reports/reports.test.ts lib/billing/billing.test.ts lib/platform/platform.test.ts lib/production/production.test.ts lib/importers/import.test.ts lib/importers/exchange.test.ts lib/scoring/eligibility.test.ts lib/assessment/visibility.test.ts lib/assessment/release.test.ts lib/ui/feedback.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "@supabase/supabase-js": "^2.116.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.3.2",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.47.0",
     "next": "16.3.5",
     "next-themes": "^0.4.6",

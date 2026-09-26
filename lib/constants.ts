@@ -21,14 +21,14 @@ export const STATUS_LABELS = {
 } as const
 
 export const BUILDER_STEPS = [
-  { id: "setup", label: "Setup" },
-  { id: "landing", label: "Landing Page" },
+  { id: "setup", label: "Identité" },
+  { id: "landing", label: "Page d'accueil" },
   { id: "questions", label: "Questions" },
-  { id: "categories", label: "Categories" },
-  { id: "scoring", label: "Scoring" },
-  { id: "lead", label: "Lead Capture" },
-  { id: "results", label: "Results" },
-  { id: "preview", label: "Preview" },
+  { id: "categories", label: "Catégories" },
+  { id: "scoring", label: "Score" },
+  { id: "lead", label: "Contact" },
+  { id: "results", label: "Résultats" },
+  { id: "preview", label: "Aperçu" },
 ] as const
 
 export type BuilderStepId = (typeof BUILDER_STEPS)[number]["id"]
@@ -53,10 +53,10 @@ export const QUESTION_TYPE_LABELS = {
 } as const
 
 export const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+  { href: "/dashboard", label: "Tableau de bord", icon: "dashboard" },
   { href: "/dashboard/scorecards", label: "Scorecards", icon: "scorecards" },
   { href: "/dashboard/leads", label: "Leads", icon: "leads" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: "analytics" },
-  { href: "/dashboard/templates", label: "Templates", icon: "templates" },
-  { href: "/dashboard/settings", label: "Settings", icon: "settings" },
+  { href: "/dashboard/analytics", label: "Statistiques", icon: "analytics" },
+  { href: "/dashboard/templates", label: "Modèles", icon: "templates" },
+  { href: "/dashboard/settings", label: "Réglages", icon: "settings" },
 ] as const

@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { CreateScorecardDialog } from "@/components/scorecard/create-scorecard-dialog"
 import { ScorecardsTable } from "@/components/scorecard/scorecards-table"
 import { EmptyState } from "@/components/dashboard/empty-state"
@@ -44,9 +45,10 @@ export default async function ScorecardsPage({
           title={params.q ? "Aucun résultat" : "Aucune scorecard"}
           description={
             params.q
-              ? "Essayez un autre nom ou un autre slug."
+              ? "Essayez un autre nom."
               : "Créez une scorecard ou partez d'un modèle WOLOYEM."
           }
+          action={params.q ? null : <Link className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm text-primary-foreground" href="/dashboard/templates">Partir d&apos;un modèle</Link>}
         />
       ) : (
         <ScorecardsTable items={scorecards} />

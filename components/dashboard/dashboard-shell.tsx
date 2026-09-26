@@ -31,12 +31,12 @@ import { initials } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const items = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { href: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/scorecards", label: "Scorecards", icon: Files, exact: false },
   { href: "/dashboard/leads", label: "Leads", icon: Users, exact: false },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, exact: false },
-  { href: "/dashboard/templates", label: "Templates", icon: LayoutTemplate, exact: false },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings, exact: false },
+  { href: "/dashboard/analytics", label: "Statistiques", icon: BarChart3, exact: false },
+  { href: "/dashboard/templates", label: "Modèles", icon: LayoutTemplate, exact: false },
+  { href: "/dashboard/settings", label: "Réglages", icon: Settings, exact: false },
 ]
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
@@ -93,7 +93,7 @@ export function DashboardShell({
         </div>
       </aside>
 
-      <div className="lg:pl-64">
+      <div className="min-w-0 lg:pl-64">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur md:px-8">
           <Sheet>
             <SheetTrigger asChild>
@@ -149,7 +149,7 @@ export function DashboardShell({
             </DropdownMenu>
           </div>
         </header>
-        <main className="px-4 py-6 md:px-8 md:py-8">{children}</main>
+        <main className="min-w-0 px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
     </div>
   )

@@ -10,7 +10,7 @@ export type ScorecardListItem = Scorecard & {
   conversionRate: number
 }
 
-export type PublicScorecard = Scorecard & {
+export type PublicScorecard = Omit<Scorecard, "undo_document"> & {
   page: Pick<
     ScorecardPage,
     | "title"
@@ -116,10 +116,8 @@ export async function getScorecardBySlug(slug: string) {
 
   if (error || !data) return null
 
-  const { count } = await supabase
-    .from("questions")
-    .select("id", { count: "exact", head: true })
-    .eq("scorecard_id", data.id)
+  const { data: questionRows } = await supabase.from("questions").select("archived_at").eq("scorecard_id", data.id)
+  const count = (questionRows ?? []).filter((row) => !row.archived_at).length
 
   const page = one(data.page as PublicScorecard["page"] | NonNullable<PublicScorecard["page"]>[] | null)
 
@@ -149,7 +147,7 @@ export async function getScorecardBySlug(slug: string) {
     created_at: data.created_at,
     updated_at: data.updated_at,
     page,
-    questionCount: count ?? 0,
+    questionCount: count,
   }
 
   return scorecard

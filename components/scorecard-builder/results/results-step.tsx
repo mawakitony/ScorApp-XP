@@ -11,14 +11,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAutosave } from "@/hooks/use-autosave"
+import { ResultTester } from "@/components/scorecard-builder/results/result-tester"
 import { rangeIssues } from "@/lib/scoring/engine"
 import { resultRangeSchema } from "@/lib/validators/builder"
-import type { BuilderRange, BuilderScoringCategory } from "@/types/builder"
+import type { EligibilityRule } from "@/lib/scoring/eligibility"
+import type { BuilderQuestion, BuilderRange, BuilderScoringCategory } from "@/types/builder"
 
 export function ResultsStep({
   scorecardId,
   ranges,
   categories,
+  questions,
+  rules,
+  caps,
   primaryColor,
   disclaimer,
   onChange,
@@ -26,6 +31,9 @@ export function ResultsStep({
   scorecardId: string
   ranges: BuilderRange[]
   categories: BuilderScoringCategory[]
+  questions: BuilderQuestion[]
+  rules: EligibilityRule[]
+  caps: { id: string; maxPercent: number }[]
   primaryColor: string
   disclaimer: string
   onChange: (ranges: BuilderRange[]) => void
@@ -77,7 +85,7 @@ export function ResultsStep({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-display text-3xl">Results</h2>
+          <h2 className="font-display text-3xl">Résultats</h2>
           <p className="mt-2 text-sm text-muted-foreground">Titre, recommandation et appel à l&apos;action pour chaque plage.</p>
         </div>
         <Button type="button" className="h-10" disabled={pending} onClick={() => void addRange()}>
@@ -92,7 +100,7 @@ export function ResultsStep({
         </div>
       ) : null}
       {ranges.length === 0 ? (
-        <p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">Aucune plage. Exemple : 0–39, 40–59, 60–79, 80–100.</p>
+        <p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">Aucune plage de résultat. Ajoutez la première, par exemple 0–49 puis 50–100, sans trou ni chevauchement.</p>
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
@@ -122,6 +130,7 @@ export function ResultsStep({
           </div>
         </div>
       )}
+      <ResultTester questions={questions} categories={categories} ranges={ranges} rules={rules} caps={caps} />
       <ReportSetup scorecardId={scorecardId} categories={categories} />
     </div>
   )

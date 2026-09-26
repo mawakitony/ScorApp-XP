@@ -94,7 +94,7 @@ export function ScorecardForm({
             })}
           />
         </Field>
-        <Field label="Slug" error={form.formState.errors.slug?.message} hint="URL publique : /s/votre-slug">
+        <Field label="Adresse publique" error={form.formState.errors.slug?.message} hint="Adresse du questionnaire : /s/votre-adresse">
           <Input
             className="h-10"
             {...form.register("slug", {

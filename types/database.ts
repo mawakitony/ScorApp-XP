@@ -63,6 +63,7 @@ export type Scorecard = {
   og_description: string | null
   og_image_url: string | null
   published_at: string | null
+  undo_document: Json | null
   report_config: Json
   created_by: string | null
   created_at: string
@@ -155,6 +156,12 @@ export type Database = {
         ]
       >
       scorecards: Table<Scorecard>
+      scorecard_releases: Table<{
+        scorecard_id: string
+        organization_id: string
+        document: Json
+        published_at: string
+      }>
       scorecard_pages: Table<
         ScorecardPage,
         [
@@ -181,6 +188,7 @@ export type Database = {
         position: number
         max_score: number | null
         settings: Json
+        archived_at: string | null
       }>
       question_options: Table<{
         id: string
@@ -189,6 +197,7 @@ export type Database = {
         value: string | null
         score: number
         position: number
+        archived_at: string | null
       }>
       question_categories: Table<{
         id: string
@@ -305,6 +314,8 @@ export type Database = {
         overall_score: number
         overall_percent: number
         result_range_id: string | null
+        matched_range_id: string | null
+        triggered_rules: Json
         calculated_at: string
         created_at: string
         updated_at: string
@@ -740,6 +751,8 @@ export type Database = {
           p_overall_percent: number
           p_range_id: string
           p_categories: Json
+          p_matched_range_id?: string | null
+          p_triggered_rules?: Json
         }
         Returns: Json
       }
@@ -823,6 +836,16 @@ export type Database = {
       consume_usage: {
         Args: { p_org: string; p_metric: string; p_limit: number | null; p_period_start: string; p_period_end: string }
         Returns: number
+      }
+      import_questionnaire: {
+        Args: {
+          p_scorecard_id: string
+          p_mode: string
+          p_source: string
+          p_filename: string
+          p_payload: Json
+        }
+        Returns: Json
       }
       claim_integration_jobs: {
         Args: { p_limit: number }

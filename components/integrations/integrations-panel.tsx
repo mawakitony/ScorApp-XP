@@ -68,7 +68,7 @@ export function IntegrationsPanel({
       <section className="rounded-3xl border bg-card p-6">
         <h2 className="font-display text-2xl">Webhooks</h2>
         {webhooks.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">Aucune intégration configurée.</p>
+          <p className="mt-3 text-sm text-muted-foreground">Aucune intégration. Ajoutez un webhook ci-dessous pour recevoir les nouveaux leads dans votre outil.</p>
         ) : (
           <ul className="mt-4 divide-y text-sm">
             {webhooks.map((hook) => (

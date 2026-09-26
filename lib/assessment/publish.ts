@@ -1,3 +1,5 @@
+import type { BuilderStepId } from "@/lib/constants"
+import { operatorsForQuestion, type EligibilityRule } from "@/lib/scoring/eligibility"
 import { rangeIssues, weightsMatchTarget, type ScoreRange } from "@/lib/scoring/engine"
 import { leadFormSchema } from "@/lib/validators/builder"
 import { slugSchema } from "@/lib/validators/builder"
@@ -18,6 +20,7 @@ export type PublishCheck = {
   label: string
   ok: boolean
   detail?: string
+  step: BuilderStepId
 }
 
 export function evaluatePublish(input: {
@@ -28,29 +31,35 @@ export function evaluatePublish(input: {
   scoringCategories: { id: string; weight: number }[]
   ranges: PublishRange[]
   lead: BuilderLeadForm
+  rules?: EligibilityRule[]
+  questionsForRules?: { id: string; type: string }[]
 }) {
   const checks: PublishCheck[] = []
   checks.push({
     id: "name",
+    step: "setup",
     label: "Nom",
     ok: input.name.trim().length >= 2,
     detail: input.name.trim().length >= 2 ? undefined : "Le nom est trop court.",
   })
   checks.push({
     id: "slug",
-    label: "Slug",
+    step: "setup",
+    label: "Adresse publique",
     ok: slugSchema.safeParse(input.slug).success,
-    detail: slugSchema.safeParse(input.slug).success ? undefined : "Le slug est invalide.",
+    detail: slugSchema.safeParse(input.slug).success ? undefined : "L'adresse publique est invalide.",
   })
   checks.push({
     id: "landing",
-    label: "Landing page",
+    step: "landing",
+    label: "Page d'accueil",
     ok: input.landingTitle.trim().length >= 2,
     detail: input.landingTitle.trim().length >= 2 ? undefined : "Le titre public est manquant.",
   })
   checks.push({
     id: "questions",
-    label: `${input.questions.length} question${input.questions.length > 1 ? "s" : ""}`,
+    step: "questions",
+    label: input.questions.length > 1 ? `${input.questions.length} questions` : "Au moins une question",
     ok: input.questions.length > 0,
     detail: input.questions.length > 0 ? undefined : "Ajoutez au moins une question.",
   })
@@ -58,6 +67,7 @@ export function evaluatePublish(input: {
   const scored = input.questions.filter((question) => question.isScored)
   checks.push({
     id: "scored",
+    step: "questions",
     label: "Question notée",
     ok: scored.length > 0,
     detail: scored.length > 0 ? undefined : "Ajoutez au moins une question notée.",
@@ -67,10 +77,11 @@ export function evaluatePublish(input: {
   const unlinked = input.scoringCategories.length > 0 && scored.some((question) => !question.scoringCategoryId)
   checks.push({
     id: "scoring",
-    label: "Scoring configured",
+    step: "scoring",
+    label: "Scoring configuré",
     ok: weightsOk && !unlinked,
     detail: !weightsOk
-      ? "La somme des poids doit être égale à 100 %."
+      ? "Les poids doivent totaliser 100 %."
       : unlinked
         ? "Chaque question notée doit avoir une catégorie de scoring."
         : undefined,
@@ -79,7 +90,8 @@ export function evaluatePublish(input: {
   const rangeProblems = coverageIssues(input.ranges)
   checks.push({
     id: "ranges",
-    label: "Result ranges configured",
+    step: "results",
+    label: "Résultats couverts de 0 à 100",
     ok: rangeProblems.length === 0,
     detail: rangeProblems[0],
   })
@@ -88,25 +100,50 @@ export function evaluatePublish(input: {
   const ctaProblems = input.ranges.filter((range) => range.ctaLabel.trim() && !isHttpUrl(range.ctaUrl))
   checks.push({
     id: "cta",
-    label: "CTA",
+    step: "results",
+    label: "Bouton d'action",
     ok: ctaProblems.length === 0,
-    detail: ctaProblems.length > 0 ? "Un CTA a un libellé sans URL valide." : undefined,
+    detail: ctaProblems.length > 0 ? "Un bouton d'action a un libellé sans adresse valide." : undefined,
   })
   checks.push({
     id: "lead",
-    label: "Lead capture configured",
+    step: "lead",
+    label: "Formulaire de contact",
     ok: leadParsed.success,
-    detail: leadParsed.success ? undefined : "Le formulaire de lead est invalide.",
+    detail: leadParsed.success ? undefined : "Le formulaire de contact est incomplet.",
   })
   const consentOk = !input.lead.consentRequired || input.lead.consentLabel.trim().length >= 8
   checks.push({
     id: "consent",
-    label: "Privacy consent configured",
+    step: "lead",
+    label: "Consentement",
     ok: consentOk,
     detail: consentOk ? undefined : "Le texte de consentement est requis.",
   })
 
+  const ruleProblem = ruleIssue(input.rules ?? [], input.questionsForRules ?? [], input.ranges)
+  checks.push({
+    id: "rules",
+    step: "scoring",
+    label: "Règles valides",
+    ok: !ruleProblem,
+    detail: ruleProblem,
+  })
+
   return { ready: checks.every((check) => check.ok), checks }
+}
+
+function ruleIssue(rules: EligibilityRule[], questions: { id: string; type: string }[], ranges: ScoreRange[]) {
+  for (const rule of rules) {
+    if (!ranges.some((range) => range.id === rule.resultRangeId)) return "Une règle vise un résultat qui n'existe plus."
+    if (rule.conditions.length === 0) return "Une règle n'a aucune condition."
+    for (const condition of rule.conditions) {
+      const question = questions.find((item) => item.id === condition.questionId)
+      if (!question) return "Une règle utilise une question qui n'existe plus."
+      if (!operatorsForQuestion(question.type).includes(condition.operator)) return "Une règle utilise un opérateur incompatible avec la question."
+    }
+  }
+  return undefined
 }
 
 export function coverageIssues(ranges: ScoreRange[]) {

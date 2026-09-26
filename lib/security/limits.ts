@@ -1,4 +1,6 @@
 export const ASSET_BYTES = 2_000_000
+export const QUESTIONNAIRE_IMPORT_BYTES = 5_000_000
+export const QUESTIONNAIRE_IMPORT_MAX_QUESTIONS = 500
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const
 

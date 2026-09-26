@@ -3,7 +3,7 @@ import { z } from "zod"
 export const slugSchema = z
   .string()
   .trim()
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Utilisez un slug en minuscules, séparé par des tirets.")
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Utilisez des minuscules et des tirets, sans espace.")
 
 export const questionTypes = [
   "single_choice",
@@ -74,6 +74,22 @@ export const questionSettingsSchema = z.object({
   scoreTo: z.number().min(0).max(1000),
 })
 
+export const displayRuleSchema = z
+  .object({
+    mode: z.enum(["show_if", "hide_if"]),
+    conditions: z
+      .array(
+        z.object({
+          questionId: z.string().uuid(),
+          operator: z.enum(["eq", "neq", "lt", "lte", "gt", "gte"]),
+          value: z.string().trim().min(1).max(200),
+        }),
+      )
+      .min(1)
+      .max(8),
+  })
+  .nullable()
+
 export const questionSchema = z.object({
   title: z.string().trim().min(2).max(300),
   description: z.string().trim().max(800),
@@ -83,6 +99,7 @@ export const questionSchema = z.object({
   isRequired: z.boolean(),
   isScored: z.boolean(),
   settings: questionSettingsSchema,
+  displayRule: displayRuleSchema.optional(),
 })
 
 export const optionSchema = z.object({
@@ -122,6 +139,21 @@ export const resultRangeSchema = z
     message: "Le minimum doit être inférieur ou égal au maximum.",
     path: ["minPercent"],
   })
+
+export const eligibilityRuleSchema = z.object({
+  conditions: z
+    .array(
+      z.object({
+        questionId: z.string().uuid(),
+        operator: z.enum(["eq", "neq", "lt", "lte", "gt", "gte"]),
+        value: z.string().trim().min(1).max(200),
+      }),
+    )
+    .min(1)
+    .max(8),
+  action: z.enum(["force_result", "max_result"]),
+  resultRangeId: z.string().uuid(),
+})
 
 export const leadFieldKeys = [
   "first_name",

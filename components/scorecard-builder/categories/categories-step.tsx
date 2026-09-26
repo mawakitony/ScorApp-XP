@@ -77,9 +77,9 @@ export function CategoriesStep({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-display text-3xl">Categories</h2>
+          <h2 className="font-display text-3xl">Catégories</h2>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            Catégories métier des questions. Les poids de scoring se règlent dans l&apos;étape Scoring.
+            Regroupez les questions, par exemple Expérience ou Formation. Les poids se règlent dans Score.
           </p>
         </div>
         <Button type="button" className="h-10" disabled={pending} onClick={() => void addCategory()}>
@@ -87,7 +87,7 @@ export function CategoriesStep({
         </Button>
       </div>
       {categories.length === 0 ? (
-        <p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">Aucune catégorie. Exemple : Experience, Education, Exam Readiness.</p>
+        <p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">Aucune catégorie. Ajoutez la première, par exemple Expérience ou Formation.</p>
       ) : (
         <SortableList
           items={categories}

@@ -27,8 +27,16 @@ export function BuilderShell({
   initialStep: BuilderStepId
 }) {
   const [bundle, setBundle] = useState(initial)
+  const [synced, setSynced] = useState(initial)
+  const [revision, setRevision] = useState(0)
+  if (synced !== initial) {
+    setSynced(initial)
+    setBundle(initial)
+    setRevision((current) => current + 1)
+  }
   const [step, setStep] = useState<BuilderStepId>(initialStep)
   const [save, setSave] = useState<SaveState>({ status: "idle", savedAt: null })
+  const [mode, setMode] = useState<"simple" | "advanced">("simple")
 
   function changeStep(next: BuilderStepId) {
     setStep(next)
@@ -90,11 +98,18 @@ export function BuilderShell({
           status={bundle.scorecard.status}
           save={save}
           scorecardId={bundle.scorecard.id}
+          publishedAt={bundle.publication?.publishedAt ?? null}
+          unpublished={bundle.publication?.unpublished ?? false}
+          canUndo={bundle.publication?.canUndo ?? false}
           onPreview={() => changeStep("preview")}
+          onFix={(next) => {
+            if (next === "categories" || next === "scoring") setMode("advanced")
+            changeStep(next)
+          }}
         />
-        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <BuilderSidebar step={step} onChange={changeStep} />
-          <section className="rounded-3xl border bg-card p-4 md:p-6">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+          <BuilderSidebar step={step} mode={mode} onMode={setMode} onChange={changeStep} />
+          <section className="min-w-0 rounded-3xl border bg-card p-4 md:p-6">
             {step === "setup" ? (
               <SetupStep
                 key={bundle.scorecard.id}
@@ -120,7 +135,21 @@ export function BuilderShell({
                 questions={bundle.questions}
                 categories={bundle.questionCategories}
                 scoringCategories={bundle.scoringCategories}
-                onChange={(questions) => setBundle((current) => ({ ...current, questions }))}
+                ranges={bundle.ranges}
+                rules={bundle.rules}
+                revision={revision}
+                onChange={(questions) =>
+                  setBundle((current) => ({
+                    ...current,
+                    questions,
+                    publication:
+                      current.scorecard.status === "published" && current.publication
+                        ? { ...current.publication, unpublished: true }
+                        : current.publication,
+                  }))
+                }
+                mode={mode}
+                onImported={(value) => setBundle((current) => ({ ...current, ...value }))}
               />
             ) : null}
             {step === "categories" ? (
@@ -145,7 +174,13 @@ export function BuilderShell({
                 scorecardId={bundle.scorecard.id}
                 categories={bundle.scoringCategories}
                 questions={bundle.questions}
+                questionCategories={bundle.questionCategories}
                 ranges={bundle.ranges}
+                rules={bundle.rules}
+                caps={bundle.caps}
+                onRules={(rules) => setBundle((current) => ({ ...current, rules }))}
+                onCaps={(caps) => setBundle((current) => ({ ...current, caps }))}
+                onQuestions={(questions) => setBundle((current) => ({ ...current, questions }))}
                 onChange={(scoringCategories) =>
                   setBundle((current) => ({
                     ...current,
@@ -171,6 +206,9 @@ export function BuilderShell({
                 scorecardId={bundle.scorecard.id}
                 ranges={bundle.ranges}
                 categories={bundle.scoringCategories}
+                questions={bundle.questions}
+                rules={bundle.rules}
+                caps={bundle.caps}
                 primaryColor={bundle.scorecard.primary_color}
                 disclaimer={bundle.scorecard.privacy_text ?? ""}
                 onChange={(ranges) => setBundle((current) => ({ ...current, ranges }))}

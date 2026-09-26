@@ -39,7 +39,7 @@ import {
 export function ScorecardsTable({ items }: { items: ScorecardListItem[] }) {
   return (
     <>
-      <div className="hidden overflow-hidden rounded-2xl border bg-card md:block">
+      <div className="hidden overflow-x-auto rounded-2xl border bg-card md:block">
         <Table>
           <TableHeader>
             <TableRow>

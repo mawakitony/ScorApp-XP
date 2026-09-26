@@ -1,3 +1,6 @@
+import { documentFromBundle, parseRelease, sameRelease } from "@/lib/assessment/release"
+import { parseDisplayRule } from "@/lib/assessment/visibility"
+import { capsFromStored, eligibilityFromStored } from "@/lib/scoring/parse-rules"
 import { parseBenefits, parseLeadFields, parseQuestionSettings, parseTestimonial } from "@/lib/scorecard/content"
 import { createClient } from "@/lib/supabase/server"
 import type { BuilderBundle, BuilderQuestion, BuilderRange } from "@/types/builder"
@@ -18,16 +21,17 @@ export async function getBuilderBundle(organizationId: string, scorecardId: stri
   }
 
   const scorecard = scorecardQuery.data
-  const [pageQuery, questionsQuery, categoriesQuery, scoringQuery, rangesQuery, leadQuery] = await Promise.all([
+  const [pageQuery, questionsQuery, categoriesQuery, scoringQuery, rangesQuery, leadQuery, rulesQuery] = await Promise.all([
     supabase.from("scorecard_pages").select("*").eq("scorecard_id", scorecard.id).maybeSingle(),
     supabase.from("questions").select("*").eq("scorecard_id", scorecard.id).order("position"),
     supabase.from("question_categories").select("*").eq("scorecard_id", scorecard.id).order("position"),
     supabase.from("scoring_categories").select("*").eq("scorecard_id", scorecard.id).order("position"),
     supabase.from("result_ranges").select("*").eq("scorecard_id", scorecard.id).order("position"),
     supabase.from("scorecard_lead_forms").select("*").eq("scorecard_id", scorecard.id).maybeSingle(),
+    supabase.from("scoring_rules").select("id, rule_type, config, position").eq("scorecard_id", scorecard.id).order("position"),
   ])
 
-  if (questionsQuery.error || categoriesQuery.error || scoringQuery.error || rangesQuery.error) {
+  if (questionsQuery.error || categoriesQuery.error || scoringQuery.error || rangesQuery.error || rulesQuery.error) {
     return { error: "Le builder n'a pas pu charger la structure. Appliquez la migration du builder." }
   }
 
@@ -51,7 +55,7 @@ export async function getBuilderBundle(organizationId: string, scorecardId: stri
   const options = optionsQuery.data ?? []
   const recommendations = recommendationsQuery.data ?? []
 
-  const questions: BuilderQuestion[] = (questionsQuery.data ?? []).map((question) => {
+  const questions: BuilderQuestion[] = (questionsQuery.data ?? []).filter((question) => !question.archived_at).map((question) => {
   const type = (questionTypes as readonly string[]).includes(question.type)
     ? (question.type as BuilderQuestion["type"])
     : "short_text"
@@ -66,8 +70,9 @@ export async function getBuilderBundle(organizationId: string, scorecardId: stri
       isScored: question.is_scored,
       position: question.position,
       settings: parseQuestionSettings(question.settings, type),
+      displayRule: parseDisplayRule(question.settings),
       options: options
-        .filter((option) => option.question_id === question.id)
+        .filter((option) => option.question_id === question.id && !option.archived_at)
         .map((option) => ({
           id: option.id,
           questionId: option.question_id,
@@ -135,6 +140,11 @@ export async function getBuilderBundle(organizationId: string, scorecardId: stri
       position: category.position,
     })),
     ranges,
+    rules: eligibilityFromStored(
+      scorecard.id,
+      (rulesQuery.data ?? []).map((rule) => ({ id: rule.id, ruleType: rule.rule_type, config: rule.config })),
+    ),
+    caps: capsFromStored((rulesQuery.data ?? []).map((rule) => ({ id: rule.id, ruleType: rule.rule_type, config: rule.config }))),
     leadForm: {
       timing: lead?.timing ?? "before_results",
       consentRequired: lead?.consent_required ?? false,
@@ -142,6 +152,14 @@ export async function getBuilderBundle(organizationId: string, scorecardId: stri
       privacyPolicyUrl: lead?.privacy_policy_url ?? "",
       fields: parseLeadFields((lead?.fields ?? null) as Json | null),
     },
+  }
+
+  const release = await supabase.from("scorecard_releases").select("document, published_at, organization_id").eq("scorecard_id", scorecard.id).maybeSingle()
+  const published = !release.error && release.data?.organization_id === scorecard.organization_id ? parseRelease(release.data.document) : null
+  bundle.publication = {
+    publishedAt: release.data?.published_at ?? scorecard.published_at,
+    unpublished: published ? !sameRelease(documentFromBundle(bundle), published) : false,
+    canUndo: scorecard.undo_document != null,
   }
 
   return { bundle }

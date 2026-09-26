@@ -58,7 +58,7 @@ export function SetupStep({
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="font-display text-3xl">Setup</h2>
+        <h2 className="font-display text-3xl">Identité</h2>
         <p className="mt-2 text-sm text-muted-foreground">Identité, langue et adresse publique de la scorecard.</p>
       </div>
       <div className="grid gap-5 md:grid-cols-2">
@@ -70,7 +70,7 @@ export function SetupStep({
         />
         <TextField
           id="setup-slug"
-          label="Slug"
+          label="Adresse publique"
           value={value.slug}
           hint={`URL publique : /s/${value.slug || "votre-slug"}`}
           onChange={(slug) => {

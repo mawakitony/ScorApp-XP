@@ -16,7 +16,7 @@ export const scorecardSchema = z.object({
     .trim()
     .regex(
       /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-      "Utilisez un slug en minuscules, séparé par des tirets.",
+      "Utilisez des minuscules et des tirets, sans espace.",
     ),
   description: z.string().trim().max(600),
   language: z.enum(["fr", "en"]),

@@ -45,7 +45,7 @@ export function StartAssessmentButton({
         })
       }}
     >
-      <input name="company_website" tabIndex={-1} autoComplete="off" className="absolute h-0 w-0 opacity-0" aria-hidden="true" />
+      <input name="company_website" tabIndex={-1} autoComplete="off" className="absolute h-0 w-0 opacity-0" aria-hidden="true" suppressHydrationWarning />
       <button
         type="submit"
         disabled={pending}

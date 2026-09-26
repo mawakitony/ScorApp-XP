@@ -1,3 +1,4 @@
+import { parseDisplayRule, type DisplayRule } from "@/lib/assessment/visibility"
 import type { QuestionType } from "@/lib/validators/builder"
 
 export type PublicOption = {
@@ -12,9 +13,11 @@ export type PublicQuestion = {
   title: string
   description: string
   isRequired: boolean
+  position: number
   scaleFrom: number
   scaleTo: number
   options: PublicOption[]
+  displayRule: DisplayRule | null
 }
 
 export type PublicCategoryScore = {
@@ -58,6 +61,7 @@ export function toPublicQuestion(input: {
   title: string
   description: string | null
   isRequired: boolean
+  position?: number
   settings: unknown
   options: { id: string; label: string; value: string | null; position: number }[]
 }): PublicQuestion {
@@ -73,10 +77,12 @@ export function toPublicQuestion(input: {
     title: input.title,
     description: input.description ?? "",
     isRequired: input.isRequired,
+    position: input.position ?? 0,
     scaleFrom,
     scaleTo,
     options: [...input.options]
       .sort((a, b) => a.position - b.position)
       .map((option) => ({ id: option.id, label: option.label, value: option.value ?? "" })),
+    displayRule: parseDisplayRule(input.settings),
   }
 }

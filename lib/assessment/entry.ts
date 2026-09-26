@@ -2,6 +2,7 @@ import "server-only"
 
 import { headers } from "next/headers"
 import { publicAccess, type PublicAccess } from "@/lib/assessment/access"
+import { readPublishedDocument } from "@/lib/assessment/public-release"
 import { isPlatformHost, normalizeDomain } from "@/lib/billing/domains"
 import { isServiceRoleConfigured } from "@/lib/env"
 import { getMembership } from "@/lib/data/membership"
@@ -36,14 +37,20 @@ export async function getPublicEntry(slug: string, preview: boolean): Promise<Pu
   if (access === "hidden") return null
 
   const { data: page } = await admin.from("scorecard_pages").select("*").eq("scorecard_id", data.id).maybeSingle()
-  const { count } = await admin.from("questions").select("id", { count: "exact", head: true }).eq("scorecard_id", data.id)
+  const release = await readPublishedDocument(admin, data.id)
+  const { data: questionRows } = await admin.from("questions").select("archived_at").eq("scorecard_id", data.id)
+  const liveCount = (questionRows ?? []).filter((row) => !row.archived_at).length
+  const publishedPage = release?.page
+  const publicPage = page && publishedPage
+    ? { ...page, title: publishedPage.title, subtitle: publishedPage.subtitle, description: publishedPage.description, cta_text: publishedPage.ctaLabel }
+    : page
 
   return {
     access,
     scorecard: {
       ...data,
-      page: page as ScorecardPage | null,
-      questionCount: count ?? 0,
+      page: publicPage as ScorecardPage | null,
+      questionCount: release ? release.questions.length : liveCount,
     },
   }
 }

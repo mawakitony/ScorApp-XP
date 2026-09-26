@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { requireScorecardEditor } from "@/lib/auth/editor"
 import { evaluatePublish, type PublishCheck } from "@/lib/assessment/publish"
 import { getBuilderBundle } from "@/lib/data/builder"
+import { writePublishedRelease } from "@/actions/release"
 
 export async function loadPublishReport(scorecardId: string): Promise<{ ready: boolean; checks: PublishCheck[]; error?: string }> {
   const context = await requireScorecardEditor(scorecardId)
@@ -29,6 +30,8 @@ export async function loadPublishReport(scorecardId: string): Promise<{ ready: b
       ctaUrl: range.ctaUrl,
     })),
     lead: bundle.leadForm,
+    rules: bundle.rules,
+    questionsForRules: bundle.questions.map((question) => ({ id: question.id, type: question.type })),
   })
 }
 
@@ -44,6 +47,8 @@ export async function publishScorecard(scorecardId: string) {
     .eq("id", context.scorecardId)
     .eq("organization_id", context.organizationId)
   if (error) return { error: "La publication a échoué." }
+  const released = await writePublishedRelease(scorecardId)
+  if (released.error) return { error: released.error }
   revalidatePath(`/dashboard/scorecards/${scorecardId}/builder`)
   revalidatePath(`/dashboard/scorecards/${scorecardId}`)
   revalidatePath("/dashboard/scorecards")

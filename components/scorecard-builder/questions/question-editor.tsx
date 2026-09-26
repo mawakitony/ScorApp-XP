@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAutosave } from "@/hooks/use-autosave"
 import { QUESTION_TYPE_LABELS } from "@/lib/constants"
+import { operatorsForQuestion, type EligibilityOperator } from "@/lib/scoring/eligibility"
+import type { DisplayRule } from "@/lib/assessment/visibility"
 import { distributeScaleScores } from "@/lib/scoring/engine"
 import { optionSchema, questionSchema, questionTypes } from "@/lib/validators/builder"
 import type { BuilderOption, BuilderQuestion, BuilderQuestionCategory, BuilderScoringCategory } from "@/types/builder"
@@ -26,12 +28,18 @@ export function QuestionEditor({
   question,
   categories,
   scoringCategories,
+  questions,
+  mode = "advanced",
+  revision = 0,
   onChange,
 }: {
   scorecardId: string
   question: BuilderQuestion
   categories: BuilderQuestionCategory[]
   scoringCategories: BuilderScoringCategory[]
+  questions: BuilderQuestion[]
+  mode?: "simple" | "advanced"
+  revision?: number
   onChange: (question: BuilderQuestion) => void
 }) {
   const draft = {
@@ -43,6 +51,7 @@ export function QuestionEditor({
     isRequired: question.isRequired,
     isScored: question.isScored,
     settings: question.settings,
+    displayRule: question.displayRule,
   }
 
   useAutosave(draft, async (current) => {
@@ -64,7 +73,7 @@ export function QuestionEditor({
       })
     }
     return result.error ? { error: result.error } : {}
-  })
+  }, revision)
 
   function patch(partial: Partial<BuilderQuestion>) {
     const next = { ...question, ...partial }
@@ -78,6 +87,10 @@ export function QuestionEditor({
   const scaleCount = Math.max(question.settings.scaleTo - question.settings.scaleFrom + 1, 0)
   const scaleScores = distributeScaleScores(scaleCount, question.settings.scoreFrom, question.settings.scoreTo)
   const textOnly = ["short_text", "long_text", "email", "phone", "number", "country"].includes(question.type)
+  const categoryName = categories.find((category) => category.id === question.questionCategoryId)?.name.trim().toLowerCase()
+  const suggested = !question.scoringCategoryId && categoryName
+    ? scoringCategories.find((category) => category.name.trim().toLowerCase() === categoryName)
+    : undefined
 
   return (
     <div className="space-y-5 rounded-2xl border bg-card p-5">
@@ -122,7 +135,15 @@ export function QuestionEditor({
           </SelectContent>
         </Select>
       </Field>
-      <Field label="Catégorie de scoring" htmlFor="question-scoring-category">
+      {suggested && mode === "simple" ? (
+        <div className="rounded-xl bg-muted/50 p-3 text-sm md:col-span-2">
+          <p>La catégorie « {suggested.name} » existe déjà pour le score.</p>
+          <Button type="button" variant="outline" className="mt-2 h-9" onClick={() => patch({ scoringCategoryId: suggested.id })}>
+            Associer à {suggested.name}
+          </Button>
+        </div>
+      ) : null}
+      {mode === "advanced" ? <Field label="Catégorie de scoring" htmlFor="question-scoring-category">
         <Select
           value={question.scoringCategoryId ?? "none"}
           onValueChange={(value) => patch({ scoringCategoryId: value === "none" ? null : value })}
@@ -139,13 +160,18 @@ export function QuestionEditor({
             ))}
           </SelectContent>
         </Select>
-      </Field>
+      </Field> : null}
       <ToggleField label="Obligatoire" checked={question.isRequired} onChange={(isRequired) => patch({ isRequired })} />
       <ToggleField label="Notée" checked={question.isScored} onChange={(isScored) => patch({ isScored })} />
+      {mode === "advanced" ? (
+        <DisplayEditor question={question} earlier={questions.filter((item) => item.position < question.position)} onChange={(displayRule) => patch({ displayRule })} />
+      ) : (
+        <p className="text-sm text-muted-foreground">Les conditions d&apos;affichage se règlent dans le mode avancé.</p>
+      )}
       {textOnly ? (
         <p className="text-sm text-muted-foreground">Le scoring automatique reste désactivé pour les réponses libres. Aucune analyse de texte n&apos;est appliquée.</p>
       ) : null}
-      {question.type === "scale_5" || question.type === "scale_10" ? (
+      {mode === "advanced" && (question.type === "scale_5" || question.type === "scale_10") ? (
         <div className="space-y-3 rounded-xl bg-muted/40 p-4">
           <p className="text-sm font-medium">Répartition du score</p>
           <div className="grid grid-cols-2 gap-3">
@@ -170,7 +196,7 @@ export function QuestionEditor({
         </div>
       ) : null}
       {isChoiceType(question.type) ? (
-        <OptionsEditor scorecardId={scorecardId} question={question} onChange={onChange} />
+        <OptionsEditor scorecardId={scorecardId} question={question} showValue={mode === "advanced"} onChange={onChange} />
       ) : null}
     </div>
   )
@@ -179,10 +205,12 @@ export function QuestionEditor({
 function OptionsEditor({
   scorecardId,
   question,
+  showValue,
   onChange,
 }: {
   scorecardId: string
   question: BuilderQuestion
+  showValue: boolean
   onChange: (question: BuilderQuestion) => void
 }) {
   async function addOption() {
@@ -239,6 +267,7 @@ function OptionsEditor({
             option={option}
             scorecardId={scorecardId}
             allowDelete={question.type !== "yes_no"}
+            showValue={showValue}
             onChange={(next) => onChange({ ...question, options: question.options.map((item) => (item.id === next.id ? next : item)) })}
             onDelete={() => void removeOption(option.id)}
           />
@@ -252,12 +281,14 @@ function OptionFields({
   option,
   scorecardId,
   allowDelete,
+  showValue,
   onChange,
   onDelete,
 }: {
   option: BuilderOption
   scorecardId: string
   allowDelete: boolean
+  showValue: boolean
   onChange: (option: BuilderOption) => void
   onDelete: () => void
 }) {
@@ -269,23 +300,158 @@ function OptionFields({
   })
 
   return (
-    <div className="grid gap-3 rounded-xl border p-3 md:grid-cols-[1fr_1fr_90px_auto]">
+    <div className={`grid gap-3 rounded-xl border p-3 ${showValue ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_90px_auto]" : "md:grid-cols-[minmax(0,1fr)_90px_auto]"}`}>
       <TextField id={`option-label-${option.id}`} label="Libellé" value={option.label} onChange={(label) => onChange({ ...option, label })} />
-      <TextField
-        id={`option-value-${option.id}`}
-        label="Valeur"
-        hint="Identifiant stable : minuscules, chiffres et tirets."
-        value={option.value}
-        onChange={(value) => onChange({ ...option, value })}
-      />
-      <NumberBox id={`option-score-${option.id}`} label="Score" value={option.score} onChange={(score) => onChange({ ...option, score })} />
+      {showValue ? (
+        <TextField
+          id={`option-value-${option.id}`}
+          label="Valeur interne"
+          hint="Minuscules, chiffres et tirets. Sert à reconnaître cette réponse."
+          value={option.value}
+          onChange={(value) => onChange({ ...option, value })}
+        />
+      ) : null}
+      <NumberBox id={`option-score-${option.id}`} label="Points" value={option.score} onChange={(score) => onChange({ ...option, score })} />
       {allowDelete ? (
         <div className="self-end">
-          <ConfirmDelete title="Supprimer cette option ?" description="La valeur ne sera plus proposée." onConfirm={onDelete} />
+          <ConfirmDelete title="Retirer cette option ?" description="Elle ne sera plus proposée. Les réponses déjà collectées conservent son libellé." onConfirm={onDelete} />
         </div>
       ) : null}
     </div>
   )
+}
+
+const operatorLabels: Record<EligibilityOperator, string> = {
+  eq: "est égal à",
+  neq: "est différent de",
+  lt: "est inférieur à",
+  lte: "est inférieur ou égal à",
+  gt: "est supérieur à",
+  gte: "est supérieur ou égal à",
+}
+
+function DisplayEditor({
+  question,
+  earlier,
+  onChange,
+}: {
+  question: BuilderQuestion
+  earlier: BuilderQuestion[]
+  onChange: (rule: DisplayRule | null) => void
+}) {
+  const mode = question.displayRule?.mode ?? "always"
+  return (
+    <div className="space-y-3 rounded-xl border p-4 md:col-span-2">
+      <div>
+        <p className="text-sm font-medium">Affichage conditionnel</p>
+        <p className="mt-1 text-sm text-muted-foreground">Par défaut, la question est toujours affichée. Elle ne peut dépendre que d&apos;une question précédente.</p>
+      </div>
+      <label className="block space-y-1 text-sm">
+        <span className="text-muted-foreground">Affichage</span>
+        <select
+          className="h-10 w-full rounded-lg border bg-card px-3"
+          value={mode}
+          onChange={(event) => {
+            if (event.target.value === "always") {
+              onChange(null)
+              return
+            }
+            const source = earlier[0]
+            onChange({
+              mode: event.target.value === "hide_if" ? "hide_if" : "show_if",
+              conditions: question.displayRule?.conditions ?? [{ questionId: source?.id ?? "", operator: "eq", value: "" }],
+            })
+          }}
+        >
+          <option value="always">Toujours afficher</option>
+          <option value="show_if">Afficher si...</option>
+          <option value="hide_if">Masquer si...</option>
+        </select>
+      </label>
+      {mode !== "always" ? (
+        <div className="space-y-3">
+          {earlier.length === 0 ? <p className="text-sm text-muted-foreground">Placez cette question après une autre pour ajouter une condition.</p> : null}
+          {(question.displayRule?.conditions ?? []).map((condition, index) => {
+            const source = earlier.find((item) => item.id === condition.questionId) ?? earlier[0]
+            const operators = operatorsForQuestion(source?.type ?? "short_text")
+            return (
+              <div key={`${condition.questionId}-${index}`} className="grid gap-2 md:grid-cols-[auto_1fr_1fr_1fr] md:items-end">
+                <p className="pb-2 text-sm">{index === 0 ? "SI" : "ET"}</p>
+                <select
+                  className="h-10 rounded-lg border bg-card px-3 text-sm"
+                  aria-label="Question précédente"
+                  value={condition.questionId}
+                  onChange={(event) => {
+                    const nextSource = earlier.find((item) => item.id === event.target.value)
+                    const nextOperators = operatorsForQuestion(nextSource?.type ?? "short_text")
+                    onChange({
+                      mode: question.displayRule?.mode ?? "show_if",
+                      conditions: (question.displayRule?.conditions ?? []).map((item, itemIndex) => itemIndex === index
+                        ? { questionId: event.target.value, operator: nextOperators[0] ?? "eq", value: "" }
+                        : item),
+                    })
+                  }}
+                >
+                  {earlier.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+                </select>
+                <select
+                  className="h-10 rounded-lg border bg-card px-3 text-sm"
+                  aria-label="Opérateur"
+                  value={condition.operator}
+                  onChange={(event) => onChange({
+                    mode: question.displayRule?.mode ?? "show_if",
+                    conditions: (question.displayRule?.conditions ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, operator: event.target.value as EligibilityOperator } : item),
+                  })}
+                >
+                  {operators.map((operator) => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}
+                </select>
+                <ConditionValue
+                  source={source}
+                  value={condition.value}
+                  onChange={(value) => onChange({
+                    mode: question.displayRule?.mode ?? "show_if",
+                    conditions: (question.displayRule?.conditions ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, value } : item),
+                  })}
+                />
+              </div>
+            )
+          })}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9"
+            disabled={earlier.length === 0 || (question.displayRule?.conditions.length ?? 0) >= 8}
+            onClick={() => onChange({
+              mode: question.displayRule?.mode ?? "show_if",
+              conditions: [...(question.displayRule?.conditions ?? []), { questionId: earlier[0]?.id ?? "", operator: "eq", value: "" }],
+            })}
+          >
+            Ajouter une condition
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ConditionValue({
+  source,
+  value,
+  onChange,
+}: {
+  source: BuilderQuestion | undefined
+  value: string
+  onChange: (value: string) => void
+}) {
+  if (source && isChoiceType(source.type)) {
+    return (
+      <select className="h-10 rounded-lg border bg-card px-3 text-sm" aria-label="Valeur" value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Choisir</option>
+        {source.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+      </select>
+    )
+  }
+  return <Input className="h-10" aria-label="Valeur" value={value} onChange={(event) => onChange(event.target.value)} />
 }
 
 function NumberBox({

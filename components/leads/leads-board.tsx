@@ -128,8 +128,8 @@ export function LeadsBoard({
       ) : null}
       {rows.length === 0 ? (
         <div className="rounded-2xl border border-dashed p-8 text-sm">
-          <p>Aucun lead ne correspond à ces filtres.</p>
-          {active ? <Link className="mt-3 inline-block underline" href="/dashboard/leads">Effacer les filtres</Link> : null}
+          <p>{active ? "Aucun lead ne correspond à ces filtres." : "Aucun lead pour le moment. Ils apparaissent ici dès qu'un participant termine une évaluation."}</p>
+          {active ? <Link className="mt-3 inline-block underline" href="/dashboard/leads">Effacer les filtres</Link> : <Link className="mt-3 inline-block underline" href="/dashboard/scorecards">Ouvrir une scorecard</Link>}
         </div>
       ) : (
         <>

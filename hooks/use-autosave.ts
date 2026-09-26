@@ -7,12 +7,14 @@ import type { SaveState } from "@/types/builder"
 
 type SaveResult = { error?: string; quiet?: boolean }
 
-export function useAutosave<T>(value: T, save: (value: T) => Promise<SaveResult>) {
+export function useAutosave<T>(value: T, save: (value: T) => Promise<SaveResult>, epoch = 0) {
   const report = useSaveReporter()
   const saveRef = useRef(save)
   const valueRef = useRef(value)
   const skip = useRef(true)
   const dirty = useRef(false)
+  const seenEpoch = useRef(epoch)
+  const ignore = useRef<string | null>(null)
   const [state, setState] = useState<SaveState>({ status: "idle", savedAt: null })
   const serialized = JSON.stringify(value)
 
@@ -31,6 +33,16 @@ export function useAutosave<T>(value: T, save: (value: T) => Promise<SaveResult>
       skip.current = false
       return
     }
+    if (seenEpoch.current !== epoch) {
+      seenEpoch.current = epoch
+      ignore.current = serialized
+      dirty.current = false
+      return
+    }
+    if (ignore.current === serialized) {
+      ignore.current = null
+      return
+    }
 
     dirty.current = true
     setState((current) => ({ ...current, status: "saving" }))
@@ -47,7 +59,7 @@ export function useAutosave<T>(value: T, save: (value: T) => Promise<SaveResult>
     }, 700)
 
     return () => window.clearTimeout(timer)
-  }, [serialized])
+  }, [epoch, serialized])
 
   useEffect(() => {
     return () => {

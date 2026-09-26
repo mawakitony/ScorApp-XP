@@ -1,6 +1,7 @@
 "use server"
 
 import {
+  clearVisitorAnswer,
   completeVisitorAssessment,
   markLeadFormViewed,
   saveVisitorAnswer,
@@ -35,6 +36,10 @@ export async function startAssessment(input: {
 
 export async function saveAssessmentAnswer(slug: string, questionId: string, answer: AnswerDraft) {
   return saveVisitorAnswer(slug, questionId, answer)
+}
+
+export async function clearAssessmentAnswer(slug: string, questionId: string) {
+  return clearVisitorAnswer(slug, questionId)
 }
 
 export async function submitAssessmentLead(slug: string, values: Record<string, string>, consent: boolean, honeypot: string) {

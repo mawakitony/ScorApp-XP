@@ -42,7 +42,7 @@ export function PublicLeadForm({
       <h2 className="font-display text-3xl">Vos coordonnées</h2>
       <p className="mt-2 text-sm text-[#5e6d7e]">Ces informations servent à vous transmettre votre résultat.</p>
       <div className="mt-6 space-y-4">
-        <input name="company_website" tabIndex={-1} autoComplete="off" className="absolute h-0 w-0 opacity-0" aria-hidden="true" />
+        <input name="company_website" tabIndex={-1} autoComplete="off" className="absolute h-0 w-0 opacity-0" aria-hidden="true" suppressHydrationWarning />
         {fields.map((key) => {
           const field = form.fields[key]
           const inputMode = key === "email" ? "email" : key === "phone" || key === "whatsapp" ? "tel" : undefined

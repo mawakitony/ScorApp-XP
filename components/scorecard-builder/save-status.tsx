@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState } from "react"
+import { saveStatusLabel } from "@/lib/ui/feedback"
 import type { SaveState } from "@/types/builder"
 
 const SaveReporterContext = createContext<(state: SaveState) => void>(() => {})
@@ -28,7 +29,7 @@ export function SaveIndicator({ state }: { state: SaveState }) {
     return () => window.clearInterval(timer)
   }, [state.savedAt, state.status])
 
-  const label = labelFor(state)
+  const label = saveStatusLabel(state)
 
   return (
     <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -37,13 +38,3 @@ export function SaveIndicator({ state }: { state: SaveState }) {
   )
 }
 
-function labelFor(state: SaveState) {
-  if (state.status === "saving") return "Saving..."
-  if (state.status === "error") return "Échec de l'enregistrement"
-  if (state.status !== "saved" || !state.savedAt) return ""
-  const seconds = Math.round((Date.now() - state.savedAt) / 1000)
-  if (seconds < 8) return "Saved"
-  if (seconds < 60) return "Last saved just now"
-  const minutes = Math.max(1, Math.round(seconds / 60))
-  return `Last saved ${minutes} min ago`
-}

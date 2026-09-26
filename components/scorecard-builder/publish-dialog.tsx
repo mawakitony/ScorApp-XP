@@ -13,9 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import type { BuilderStepId } from "@/lib/constants"
 import type { PublishCheck } from "@/lib/assessment/publish"
 
-export function PublishDialog({ scorecardId }: { scorecardId: string }) {
+export function PublishDialog({ scorecardId, onFix }: { scorecardId: string; onFix: (step: BuilderStepId) => void }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [checks, setChecks] = useState<PublishCheck[] | null>(null)
@@ -44,7 +45,7 @@ export function PublishDialog({ scorecardId }: { scorecardId: string }) {
       toast.error(result.error)
       return
     }
-    toast.success("Scorecard publiée.")
+    toast.success("Publiée. Le questionnaire public utilise maintenant ce contenu.")
     setOpen(false)
     router.refresh()
   }
@@ -52,17 +53,21 @@ export function PublishDialog({ scorecardId }: { scorecardId: string }) {
   return (
     <>
       <Button type="button" className="h-10" onClick={() => void openReport()}>
-        Publish
+        Publier
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{ready ? "Ready to publish?" : "Cannot publish"}</DialogTitle>
+            <DialogTitle>{checks === null ? "Vérification" : ready ? "Prêt à publier ?" : "Publication impossible"}</DialogTitle>
             <DialogDescription>
-              {ready ? "La scorecard pourra être ouverte par les visiteurs." : "Corrigez les points suivants avant la publication."}
+              {checks === null
+                ? "Contrôle du questionnaire avant publication."
+                : ready
+                  ? "La scorecard pourra être ouverte par les visiteurs."
+                  : "Corrigez les points suivants avant la publication."}
             </DialogDescription>
           </DialogHeader>
-          {checks === null ? <p className="text-sm text-muted-foreground">Vérification...</p> : null}
+          {checks === null ? <p className="text-sm text-muted-foreground" aria-live="polite">Vérification…</p> : null}
           <ul className="space-y-2 text-sm">
             {(checks ?? []).map((check) => (
               <li key={check.id}>
@@ -70,6 +75,18 @@ export function PublishDialog({ scorecardId }: { scorecardId: string }) {
                   {check.ok ? "✓" : "–"} {check.label}
                 </p>
                 {!check.ok && check.detail ? <p className="pl-4 text-destructive">{check.detail}</p> : null}
+                {!check.ok ? (
+                  <button
+                    type="button"
+                    className="pl-4 text-sm underline"
+                    onClick={() => {
+                      setOpen(false)
+                      onFix(check.step)
+                    }}
+                  >
+                    Corriger
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -77,8 +94,8 @@ export function PublishDialog({ scorecardId }: { scorecardId: string }) {
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Fermer
             </Button>
-            <Button type="button" disabled={!ready || pending} onClick={() => void publish()}>
-              {pending ? "Publication..." : "Publier"}
+            <Button type="button" disabled={!ready || pending} aria-busy={pending} onClick={() => void publish()}>
+              {pending ? "Publication…" : "Publier"}
             </Button>
           </DialogFooter>
         </DialogContent>
