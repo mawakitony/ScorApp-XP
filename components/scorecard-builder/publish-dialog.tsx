@@ -16,6 +16,13 @@ import {
 import type { BuilderStepId } from "@/lib/constants"
 import type { PublishCheck } from "@/lib/assessment/publish"
 
+function refreshFromServer(router: { refresh: () => void }) {
+  const url = new URL(window.location.href)
+  url.searchParams.set("sync", "1")
+  window.history.replaceState(null, "", `${url.pathname}${url.search}`)
+  router.refresh()
+}
+
 export function PublishDialog({ scorecardId, onFix }: { scorecardId: string; onFix: (step: BuilderStepId) => void }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -47,7 +54,7 @@ export function PublishDialog({ scorecardId, onFix }: { scorecardId: string; onF
     }
     toast.success("Publiée. Le questionnaire public utilise maintenant ce contenu.")
     setOpen(false)
-    router.refresh()
+    refreshFromServer(router)
   }
 
   return (

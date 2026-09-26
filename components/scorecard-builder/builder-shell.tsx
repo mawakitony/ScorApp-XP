@@ -30,9 +30,15 @@ export function BuilderShell({
   const [synced, setSynced] = useState(initial)
   const [revision, setRevision] = useState(0)
   if (synced !== initial) {
+    const syncing = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sync")
     setSynced(initial)
-    setBundle(initial)
-    setRevision((current) => current + 1)
+    if (syncing) {
+      setBundle(initial)
+      setRevision((current) => current + 1)
+      const url = new URL(window.location.href)
+      url.searchParams.delete("sync")
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`)
+    }
   }
   const [step, setStep] = useState<BuilderStepId>(initialStep)
   const [save, setSave] = useState<SaveState>({ status: "idle", savedAt: null })

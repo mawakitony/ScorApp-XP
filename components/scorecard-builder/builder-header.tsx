@@ -49,7 +49,7 @@ export function BuilderHeader({
       toast.error(result.error)
       return
     }
-    router.refresh()
+    refreshFromServer(router)
   }
 
   async function restore() {
@@ -61,7 +61,7 @@ export function BuilderHeader({
       return
     }
     toast.success("Brouillon rétabli sur la version publiée.")
-    router.refresh()
+    refreshFromServer(router)
   }
 
   return (
@@ -89,4 +89,11 @@ export function BuilderHeader({
       </div>
     </div>
   )
+}
+
+function refreshFromServer(router: { refresh: () => void }) {
+  const url = new URL(window.location.href)
+  url.searchParams.set("sync", "1")
+  window.history.replaceState(null, "", `${url.pathname}${url.search}`)
+  router.refresh()
 }
