@@ -22,9 +22,9 @@ const colors = ["#16324F", "#C4A15A", "#2F6F73", "#8C4A3A", "#6D7C59"]
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border bg-card p-5 shadow-sm">
+    <section className="min-w-0 overflow-hidden rounded-2xl border bg-card p-5 shadow-sm">
       <h2 className="text-sm font-medium">{title}</h2>
-      <div className="mt-4 h-64">{children}</div>
+      <div className="mt-4 h-64 min-w-0 overflow-hidden">{children}</div>
     </section>
   )
 }
@@ -48,7 +48,7 @@ export function OverviewCharts({ data }: { data: Overview }) {
   const hasScores = data.score_by_day.length > 0
 
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-2">
       <ChartCard title="Leads par jour">
         {hasLeads ? (
           <ResponsiveContainer width="100%" height="100%">
@@ -119,8 +119,8 @@ export function OverviewCharts({ data }: { data: Overview }) {
         {data.top_scorecards.length > 0 ? (
           <ul className="space-y-3">
             {data.top_scorecards.map((scorecard) => (
-              <li key={scorecard.id} className="flex items-center justify-between gap-3 text-sm">
-                <span className="truncate">{scorecard.name}</span>
+              <li key={scorecard.id} className="flex min-w-0 items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate">{scorecard.name}</span>
                 <span className="shrink-0 text-muted-foreground">
                   {formatNumber(scorecard.leads)} leads · {formatNumber(scorecard.completed)} résultats
                 </span>
